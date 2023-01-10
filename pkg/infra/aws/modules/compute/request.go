@@ -9,8 +9,7 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/infra/aws/services/ec2/ami"
 	"github.com/adrianriobo/qenvs/pkg/infra/aws/services/ec2/keypair"
 	securityGroup "github.com/adrianriobo/qenvs/pkg/infra/aws/services/ec2/security-group"
-	supportmatrix "github.com/adrianriobo/qenvs/pkg/infra/aws/support-matrix"
-	"github.com/adrianriobo/qenvs/pkg/infra/util/command"
+	utilRemote "github.com/adrianriobo/qenvs/pkg/infra/util/remote"
 	"github.com/adrianriobo/qenvs/pkg/util"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/autoscaling"
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
@@ -48,12 +47,12 @@ func (r *Request) CustomSecurityGroups(ctx *pulumi.Context) ([]*ec2.SecurityGrou
 	return nil, nil
 }
 
-func (r *Request) GetPostScript(ctx *pulumi.Context) (pulumi.StringPtrInput, error) {
-	return nil, nil
+func (r *Request) PostProcess(ctx *pulumi.Context, compute *Compute) ([]pulumi.Resource, error) {
+	return []pulumi.Resource{}, nil
 }
 
 func (r *Request) ReadinessCommand() string {
-	return command.CommandPing
+	return utilRemote.CommandPing
 }
 
 func (r *Request) Create(ctx *pulumi.Context, computeRequested ComputeRequest) (*Compute, error) {
@@ -71,8 +70,7 @@ func (r *Request) Create(ctx *pulumi.Context, computeRequested ComputeRequest) (
 		return nil, err
 	}
 	// We only try to replicate if self ami and AMI source region is different from current one
-	if r.Specs.AMI.Owner == supportmatrix.OwnerSelf &&
-		r.Specs.AMI.AMISourceRegion != r.Region {
+	if r.Specs.AMI.AMISourceRegion != r.Region {
 		// If it is self need to check if exist on zone otherwise replicate
 		// TODO check first if already exists
 		amiReplicationRequest := amireplication.ReplicatedRequest{
@@ -95,7 +93,8 @@ func (r *Request) Create(ctx *pulumi.Context, computeRequested ComputeRequest) (
 		return nil, err
 	}
 	if len(r.SpotPrice) > 0 {
-		err = r.createSpotInstance(ctx, ami.Id, userdataEncodedBase64, &compute)
+		err = r.createSpotInstance(ctx, ami.Id, userdataEncodedBase64,
+			computeRequested.CustomIngressRules(), &compute)
 		if err != nil {
 			return nil, err
 		}
@@ -111,22 +110,12 @@ func (r *Request) Create(ctx *pulumi.Context, computeRequested ComputeRequest) (
 	}
 	ctx.Export(r.OutputUsername(), pulumi.String(r.Specs.AMI.DefaultUser))
 	if r.Public {
-		postScript, err := computeRequested.GetPostScript(ctx)
+
+		waitCmddependencies, err := computeRequested.PostProcess(ctx, &compute)
 		if err != nil {
 			return nil, err
 		}
-		waitCmddependencies := []pulumi.Resource{}
-		if postScript != nil {
-			rc, err := compute.remoteExec(ctx,
-				postScript,
-				fmt.Sprintf("%s-%s", r.Specs.ID, "postscript"),
-				nil)
-			if err != nil {
-				return nil, err
-			}
-			waitCmddependencies = append(waitCmddependencies, rc)
-		}
-		_, err = compute.remoteExec(ctx,
+		_, err = compute.RemoteExec(ctx,
 			pulumi.String(computeRequested.ReadinessCommand()),
 			fmt.Sprintf("%s-%s", r.Specs.ID, "wait"),
 			waitCmddependencies)
@@ -220,7 +209,8 @@ func (r *Request) createOnDemand(ctx *pulumi.Context, amiID string,
 }
 
 func (r Request) createSpotInstance(ctx *pulumi.Context,
-	amiID string, udBase64 pulumi.StringPtrInput, compute *Compute) error {
+	amiID string, udBase64 pulumi.StringPtrInput,
+	customIngressRules []securityGroup.IngressRules, compute *Compute) error {
 	args := &ec2.LaunchTemplateArgs{
 		NamePrefix: pulumi.String(r.GetName()),
 		ImageId:    pulumi.String(amiID),
@@ -248,41 +238,34 @@ func (r Request) createSpotInstance(ctx *pulumi.Context,
 	if err != nil {
 		return err
 	}
+	eip, err := ec2.NewEip(ctx,
+		r.GetName(),
+		&ec2.EipArgs{
+			PublicIpv4Pool: pulumi.String("amazon"),
+			Vpc:            pulumi.Bool(true),
+		})
+	if err != nil {
+		return err
+	}
 	nlb, err := lb.NewLoadBalancer(ctx,
 		r.GetName(),
 		&lb.LoadBalancerArgs{
 			LoadBalancerType: pulumi.String("network"),
-			Subnets:          pulumi.StringArray{r.Subnets[0].ID()},
-		})
-	if err != nil {
-		return err
-	}
-	rhelTargetGroup, err := lb.NewTargetGroup(ctx, r.GetName(),
-		&lb.TargetGroupArgs{
-			Port:     pulumi.Int(22),
-			Protocol: pulumi.String("TCP"),
-			VpcId:    r.VPC.ID(),
-		})
-	if err != nil {
-		return err
-	}
-	_, err = lb.NewListener(ctx,
-		r.GetName(),
-		&lb.ListenerArgs{
-			LoadBalancerArn: nlb.Arn,
-			Port:            pulumi.Int(22),
-			Protocol:        pulumi.String("TCP"),
-			DefaultActions: lb.ListenerDefaultActionArray{
-				&lb.ListenerDefaultActionArgs{
-					Type:           pulumi.String("forward"),
-					TargetGroupArn: rhelTargetGroup.Arn,
+			SubnetMappings: lb.LoadBalancerSubnetMappingArray{
+				&lb.LoadBalancerSubnetMappingArgs{
+					SubnetId:     r.Subnets[0].ID(),
+					AllocationId: eip.ID(),
 				},
 			},
 		})
 	if err != nil {
 		return err
 	}
-	compute.InstanceIP = nlb.DnsName
+	targetGroupsArns, err := r.manageTargetGroups(ctx, nlb, customIngressRules)
+	if err != nil {
+		return err
+	}
+	compute.InstanceIP = eip.PublicIp
 	compute.Username = r.Specs.AMI.DefaultUser
 	overrides := autoscaling.GroupMixedInstancesPolicyLaunchTemplateOverrideArray{}
 	for _, instanceType := range r.Specs.InstaceTypes {
@@ -307,7 +290,7 @@ func (r Request) createSpotInstance(ctx *pulumi.Context,
 	_, err = autoscaling.NewGroup(ctx,
 		r.GetName(),
 		&autoscaling.GroupArgs{
-			TargetGroupArns:      pulumi.ToStringArrayOutput([]pulumi.StringOutput{rhelTargetGroup.Arn}),
+			TargetGroupArns:      pulumi.ToStringArrayOutput(targetGroupsArns),
 			CapacityRebalance:    pulumi.Bool(true),
 			DesiredCapacity:      pulumi.Int(1),
 			MaxSize:              pulumi.Int(1),
@@ -338,6 +321,56 @@ func (r Request) createSpotInstance(ctx *pulumi.Context,
 	}
 	ctx.Export(r.OutputHost(), compute.InstanceIP)
 	return nil
+}
+
+func (r Request) manageTargetGroups(ctx *pulumi.Context,
+	nlb *lb.LoadBalancer, customIngressRules []securityGroup.IngressRules) ([]pulumi.StringOutput, error) {
+	var targetGroups []pulumi.StringOutput
+	sshTargetGroupArn, err := r.manageTargetGroup(ctx, nlb, 22)
+	if err != nil {
+		return nil, err
+	}
+	targetGroups = append(targetGroups, *sshTargetGroupArn)
+	for _, cir := range customIngressRules {
+		targetGroupArn, err := r.manageTargetGroup(ctx, nlb, cir.FromPort)
+		if err != nil {
+			return nil, err
+		}
+		targetGroups = append(targetGroups, *targetGroupArn)
+
+	}
+	return targetGroups, nil
+}
+
+func (r Request) manageTargetGroup(ctx *pulumi.Context,
+	nlb *lb.LoadBalancer, port int) (*pulumi.StringOutput, error) {
+	targetGroup, err := lb.NewTargetGroup(ctx, r.GetName(),
+		&lb.TargetGroupArgs{
+			Port:     pulumi.Int(port),
+			Protocol: pulumi.String("TCP"),
+			VpcId:    r.VPC.ID(),
+		})
+	if err != nil {
+		return nil, err
+	}
+	_, err = lb.NewListener(ctx,
+		r.GetName(),
+		&lb.ListenerArgs{
+			LoadBalancerArn: nlb.Arn,
+			Port:            pulumi.Int(port),
+			Protocol:        pulumi.String("TCP"),
+			DefaultActions: lb.ListenerDefaultActionArray{
+				&lb.ListenerDefaultActionArgs{
+					Type:           pulumi.String("forward"),
+					TargetGroupArn: targetGroup.Arn,
+				},
+			},
+		})
+	if err != nil {
+		return nil, err
+	}
+
+	return &targetGroup.Arn, nil
 }
 
 func (r *Request) OutputPrivateKey() string {

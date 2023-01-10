@@ -1,11 +1,10 @@
-package command
+package remote
 
 import (
 	"fmt"
 
 	"github.com/pulumi/pulumi-aws/sdk/v5/go/aws/ec2"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
-	"github.com/pulumi/pulumi-tls/sdk/v4/go/tls"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
@@ -24,7 +23,7 @@ type RemoteInstance struct {
 	InstanceIP *pulumi.StringOutput
 	Instance   *ec2.Instance
 	Username   string
-	PrivateKey *tls.PrivateKey
+	PrivateKey pulumi.StringPtrInput
 }
 
 // Remote command success if error = nil
@@ -39,12 +38,34 @@ func (r RemoteInstance) RemoteExec(ctx *pulumi.Context, remoteCommand pulumi.Str
 	return remote.NewCommand(ctx, remoteCommandName, &remote.CommandArgs{
 		Connection: remote.ConnectionArgs{
 			Host:       remoteIP,
-			PrivateKey: r.PrivateKey.PrivateKeyOpenssh,
+			PrivateKey: r.PrivateKey,
 			User:       pulumi.String(r.Username),
 			Port:       pulumi.Float64(defaultSSHPort),
 		},
 		Create: remoteCommand,
 		Update: remoteCommand,
+	}, pulumi.Timeouts(
+		&pulumi.CustomTimeouts{
+			Create: remoteTimeout,
+			Update: remoteTimeout}),
+		pulumi.DependsOn(dependecies))
+}
+
+func (r RemoteInstance) CopyFile(ctx *pulumi.Context, localPath, remotePath string, resourceName string,
+	dependecies []pulumi.Resource) (*remote.CopyFile, error) {
+	remoteIP, err := r.getRemoteHost()
+	if err != nil {
+		return nil, err
+	}
+	return remote.NewCopyFile(ctx, resourceName, &remote.CopyFileArgs{
+		Connection: remote.ConnectionArgs{
+			Host:       remoteIP,
+			PrivateKey: r.PrivateKey,
+			User:       pulumi.String(r.Username),
+			Port:       pulumi.Float64(defaultSSHPort),
+		},
+		LocalPath:  pulumi.String(localPath),
+		RemotePath: pulumi.String(remotePath),
 	}, pulumi.Timeouts(
 		&pulumi.CustomTimeouts{
 			Create: remoteTimeout,
