@@ -19,6 +19,7 @@ require (
 	github.com/Azure/azure-sdk-for-go/sdk/azidentity v1.4.0
 	github.com/Azure/azure-sdk-for-go/sdk/resourcemanager/resourcegraph/armresourcegraph v0.8.2
 	github.com/pulumi/pulumi-aws/sdk/v6 v6.9.0
+	github.com/pulumi/pulumi-awsx/sdk/v2 v2.3.0
 	github.com/pulumi/pulumi-azure-native-sdk/compute/v2 v2.18.0
 	github.com/pulumi/pulumi-azure-native-sdk/network/v2 v2.18.0
 	github.com/pulumi/pulumi-azure-native-sdk/resources/v2 v2.18.0
@@ -62,6 +63,7 @@ require (
 	github.com/pkg/browser v0.0.0-20210911075715-681adbf594b8 // indirect
 	github.com/pulumi/esc v0.5.6 // indirect
 	github.com/pulumi/pulumi-azure-native-sdk/v2 v2.18.0 // indirect
+	github.com/pulumi/pulumi-docker/sdk/v4 v4.4.3 // indirect
 	github.com/sagikazarmark/locafero v0.3.0 // indirect
 	github.com/sagikazarmark/slog-shim v0.1.0 // indirect
 	github.com/santhosh-tekuri/jsonschema/v5 v5.0.0 // indirect
