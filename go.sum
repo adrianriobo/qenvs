@@ -301,6 +301,8 @@ github.com/pulumi/esc v0.5.6 h1:4WV3X7OEVcChIwbSG+JxhZDdmq/q7lFPaSjHRYlPwmI=
 github.com/pulumi/esc v0.5.6/go.mod h1:wpwNfVS5fV7Kd51j4dJ6FWYlKfxdqyppgp0gtkzqH04=
 github.com/pulumi/pulumi-aws/sdk/v6 v6.9.0 h1:lXAuHTQpahA/AOE7MstBsoQi4E6by1nKII1WRO3oq+w=
 github.com/pulumi/pulumi-aws/sdk/v6 v6.9.0/go.mod h1:j9uDjldfM/PmtXTpmRtHdsmsay3bW4pVYb4cI6OdAvw=
+github.com/pulumi/pulumi-awsx/sdk/v2 v2.3.0 h1:UEdUQKep1Y4vr6YasSO2tXRGJWaoVVQfpD87sEFYhTI=
+github.com/pulumi/pulumi-awsx/sdk/v2 v2.3.0/go.mod h1:0LFX4V3PY88rBBfRIIA4DxOTAI/GEffwvjnFGccfTyw=
 github.com/pulumi/pulumi-azure-native-sdk/compute/v2 v2.18.0 h1:Xk3x640pst+9o5+6D2gB1e33xa6fZ9Tn1cCAI6DiKMg=
 github.com/pulumi/pulumi-azure-native-sdk/compute/v2 v2.18.0/go.mod h1:fZZHYvj8kozGI5e6jY81LTCY8Wvr4ir82qZmmyVD6LI=
 github.com/pulumi/pulumi-azure-native-sdk/network/v2 v2.18.0 h1:S0mM5tJw6QxQytXLWZQAt9XAmCIojGJ5k3edRXeR0mo=
@@ -313,6 +315,8 @@ github.com/pulumi/pulumi-azure-native-sdk/v2 v2.18.0 h1:NTGY8qa8gqonMkuBASVHtpf2
 github.com/pulumi/pulumi-azure-native-sdk/v2 v2.18.0/go.mod h1:QQ0bJDSjYrzgTyw73XakHwB9+5S9/GkNvjaUDBHQz2A=
 github.com/pulumi/pulumi-command/sdk v0.9.2 h1:2siCFR8pS2sSwXkeWiLrprGEtBL54FsHTzdyl125UuI=
 github.com/pulumi/pulumi-command/sdk v0.9.2/go.mod h1:VeUXTI/iTgKVjRChRJbLRlBVGxAH+uymscfwzBC2VqY=
+github.com/pulumi/pulumi-docker/sdk/v4 v4.4.3 h1:gQC2As+wE8QflbLCG90jLaKwIpqW3yl1y327Jj6ovbI=
+github.com/pulumi/pulumi-docker/sdk/v4 v4.4.3/go.mod h1:i19ZhFjFQrngtXYLHp3kjZNRmnEnq/DUdXK6/CBk77o=
 github.com/pulumi/pulumi-random/sdk/v4 v4.14.0 h1:ljy/gUeur2kZZWL3JPy0J9zLDYKKA0zMd1mT7xrpI7s=
 github.com/pulumi/pulumi-random/sdk/v4 v4.14.0/go.mod h1:XqGATLB6KKuWRDhWvHO6YVwv0DRW/cK/pWzNkuhMB24=
 github.com/pulumi/pulumi-tls/sdk/v4 v4.11.1 h1:tXemWrzeVTqG8zq6hBdv1TdPFXjgZ+dob63a/6GlF1o=
@@ -768,7 +772,7 @@ honnef.co/go/tools v0.0.1-2020.1.3/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9
 honnef.co/go/tools v0.0.1-2020.1.4/go.mod h1:X/FiERA/W4tHapMX5mGpAtMSVEeEUOyHaw9vFzvIQ3k=
 lukechampine.com/frand v1.4.2 h1:RzFIpOvkMXuPMBb9maa4ND4wjBn71E1Jpf8BzJHMaVw=
 lukechampine.com/frand v1.4.2/go.mod h1:4S/TM2ZgrKejMcKMbeLjISpJMO+/eZ1zu3vYX9dtj3s=
-pgregory.net/rapid v0.5.5 h1:jkgx1TjbQPD/feRoK+S/mXw9e1uj6WilpHrXJowi6oA=
+pgregory.net/rapid v0.6.1 h1:4eyrDxyht86tT4Ztm+kvlyNBLIk071gR+ZQdhphc9dQ=
 rsc.io/binaryregexp v0.2.0/go.mod h1:qTv7/COck+e2FymRvadv62gMdZztPaShugOCi3I+8D8=
 rsc.io/quote/v3 v3.1.0/go.mod h1:yEA65RcK8LyAZtP9Kv3t0HmxON59tX3rD+tICJqUlj0=
 rsc.io/sampler v1.3.0/go.mod h1:T1hPZKmBbMNahiBKFy5HrXp6adAjACjK9JXDnKaTXpA=
