@@ -87,18 +87,30 @@ func (r *MacRequest) manageResultsDedicatedHost(stackResult auto.UpResult) (*str
 
 func (r *MacRequest) ScheduleDestroy(ctx *pulumi.Context) error {
 	// https://medium.com/@nilangav/set-up-scheduled-tasks-with-aws-fargate-using-cloudformation-templates-b7bd2f7db46b
-
-	cluster, err := awsECS.NewCluster(ctx, "cluster",
-		&awsECS.ClusterArgs{})
+	// Cluster is not deleted as it is required to run the self prune container
+	clusterName := resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "mac-dh-event-destroy")
+	cluster, err := awsECS.NewCluster(ctx,
+		clusterName,
+		&awsECS.ClusterArgs{
+			Tags: qenvsContext.ResourceTags(),
+			Name: pulumi.String(clusterName),
+		},
+		pulumi.RetainOnDelete(true))
 	if err != nil {
 		return err
 	}
 
+	destroyCmd := []string{"aws", "destroy", "mac"}
 	fs, err := ecs.NewFargateService(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "fg"),
 		&ecs.FargateServiceArgs{
-			Cluster:            cluster.Arn,
-			TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{},
+			Cluster: cluster.Arn,
+			TaskDefinitionArgs: &ecs.FargateServiceTaskDefinitionArgs{
+				Container: &ecs.TaskDefinitionContainerDefinitionArgs{
+					Command: pulumi.ToStringArray(destroyCmd),
+					Image:   pulumi.String(""),
+				},
+			},
 		})
 	if err != nil {
 		return err
