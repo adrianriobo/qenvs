@@ -107,7 +107,7 @@ github.com/apparentlymart/go-textseg/v15/textseg
 # github.com/atotto/clipboard v0.1.4
 ## explicit
 github.com/atotto/clipboard
-# github.com/aws/aws-sdk-go v1.48.9
+# github.com/aws/aws-sdk-go v1.48.10
 ## explicit; go 1.19
 github.com/aws/aws-sdk-go/aws
 github.com/aws/aws-sdk-go/aws/auth/bearer

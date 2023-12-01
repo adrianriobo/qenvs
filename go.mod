@@ -3,7 +3,7 @@ module github.com/adrianriobo/qenvs
 go 1.20
 
 require (
-	github.com/aws/aws-sdk-go v1.48.9
+	github.com/aws/aws-sdk-go v1.48.10
 	github.com/coocood/freecache v1.2.4
 	github.com/pulumi/pulumi-command/sdk v0.9.2
 	github.com/pulumi/pulumi-random/sdk/v4 v4.14.0
