@@ -20,3 +20,13 @@ const (
 
 	prioritySpot = "Spot"
 )
+
+var defaultVMSizeByArch = map[string]string{
+	"x86": "Standard_D8s_v4",
+	"m1":  "mac2.metal",
+	"m2":  "mac2-m2pro.metal"}
+
+var awsArchIDbyArch = map[string]string{
+	"x86": "x86_64_mac",
+	"m1":  "arm64_mac",
+	"m2":  "arm64_mac"}

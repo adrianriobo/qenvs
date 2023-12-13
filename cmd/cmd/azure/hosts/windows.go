@@ -17,6 +17,9 @@ const (
 	paramLocation          = "location"
 	paramLocationDesc      = "location for created resources within Windows desktop"
 	defaultLocation        = "West US"
+	paramArch              = "arch"
+	paramArchDesc          = "architecture allowed x86, arm64 (preview)"
+	defaultArch            = "x86"
 	paramVMSize            = "vmsize"
 	paramVMSizeDesc        = "size for the VM. Type requires to allow nested virtualization"
 	defaultVMSize          = "Standard_D8s_v4"
@@ -70,6 +73,7 @@ func getCreate() *cobra.Command {
 				&azureWindows.WindowsRequest{
 					Prefix:        "",
 					Location:      viper.GetString(paramLocation),
+					Architecture:  viper.GetString(paramArch),
 					VMSize:        viper.GetString(paramVMSize),
 					Version:       viper.GetString(paramVersion),
 					Feature:       viper.GetString(paramFeature),
@@ -85,6 +89,7 @@ func getCreate() *cobra.Command {
 	flagSet.StringP(params.ConnectionDetailsOutput, "", "", params.ConnectionDetailsOutputDesc)
 	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	flagSet.StringP(paramLocation, "", defaultLocation, paramLocationDesc)
+	flagSet.StringP(paramArch, "", defaultArch, paramArchDesc)
 	flagSet.StringP(paramVMSize, "", defaultVMSize, paramVMSizeDesc)
 	flagSet.StringP(paramVersion, "", defaultVersion, paramVersionDesc)
 	flagSet.StringP(paramFeature, "", defaultFeature, paramFeatureDesc)

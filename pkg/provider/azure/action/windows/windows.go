@@ -29,6 +29,7 @@ var RHQPCISetupScript []byte
 type WindowsRequest struct {
 	Prefix        string
 	Location      string
+	Architecture  string
 	VMSize        string
 	Version       string
 	Feature       string
