@@ -67,9 +67,27 @@ func Create(r *MacRequest) (err error) {
 	return nil
 }
 
+// This function will check if mac machine exists based on labeling
+// If it will exists It will check if it is locked (where should we add the lock?)
+// If lock free we will use replace root volume and set the lock
+func Request(r *MacRequest) error {
+
+	return fmt.Errorf("not implemented yet")
+}
+
 // TODO add loop until state with target state and timeout?
 func CheckState(hostID string) (*string, error) {
-	return data.GetDedicatedHostState(hostID)
+	hosts, err := data.GetDedicatedHostState(data.DedicatedHostResquest{
+		HostID: hostID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(hosts) != 1 {
+		return nil, fmt.Errorf("unexpected number of hosts")
+	}
+	state := fmt.Sprintf("%v", &hosts[0].State)
+	return &state, nil
 }
 
 // Will destroy resources related to machine
