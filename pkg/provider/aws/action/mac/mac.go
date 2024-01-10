@@ -5,19 +5,22 @@ import (
 	"fmt"
 	"os"
 
+	"golang.org/x/exp/slices"
+
 	"github.com/adrianriobo/qenvs/pkg/manager"
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/network"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
+
+	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 type MacRequest struct {
 	Prefix           string
 	Architecture     string
 	Version          string
-	HostID           string
 	OnlyHost         bool
 	OnlyMachine      bool
 	FixedLocation    bool
@@ -28,13 +31,25 @@ type MacRequest struct {
 	// a phase with connectivity on the machine (allowing bootstraping)
 	// a pahase with connectivyt off where the subnet for the target lost the nat gateway
 	airgapPhaseConnectivity network.Connectivity
+
+	// If replace flag is true we will handle create / destroy as replace root volume
+	Replace bool
+
+	// We will create a dh or pick one which will be used to install / replace a mac machine
+	dedicatedHost *ec2Types.Host
 }
 
 // this function orchestrate the two stacks related to mac machine
 // * the underlaying dedicated host
 // * the mac machine
 func Create(r *MacRequest) (err error) {
-	if len(r.HostID) == 0 {
+	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
+		Tags: qenvsContext.GetTags(),
+	})
+	if err != nil {
+		return err
+	}
+	if len(hosts) == 0 {
 		// Check if instance type is available on current location
 		// region is only needed for dedicated host mac machine got the region from the az
 		// of the dedicated host or the request if it creates both at once
@@ -49,13 +64,16 @@ func Create(r *MacRequest) (err error) {
 		}
 		r.AvailabilityZone = *az
 		// No host id means need to create dedicated host
-		dhID, dhAZ, err := r.createDedicatedHost()
+		host, dhAZ, err := r.createDedicatedHost()
 		if err != nil {
 			return err
 		}
-		r.HostID = *dhID
 		r.AvailabilityZone = *dhAZ
+		r.dedicatedHost = host
 	}
+	// TODO we need to check wich host we will use
+	// some logic based on states for dh + locks on machines on the dh
+	r.dedicatedHost = &hosts[0]
 	if !r.OnlyHost {
 		// if not only host the mac machine will be created
 		if !r.Airgap {
@@ -71,13 +89,34 @@ func Create(r *MacRequest) (err error) {
 // If it will exists It will check if it is locked (where should we add the lock?)
 // If lock free we will use replace root volume and set the lock
 func Request(r *MacRequest) error {
+	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
+		Tags: qenvsContext.GetTags(),
+	})
+	if err != nil {
+		return err
+	}
+	if len(hosts) == 0 {
+		return fmt.Errorf("not hosts found")
+	}
+	// There is a dedicated host to be used
+	// Can be one or n
+	// Need to get
+	host := hosts[0]
+	// Now get the backed url for the host decidedinstance
 
-	return fmt.Errorf("not implemented yet")
+	i := slices.IndexFunc(host.Tags, func(t ec2Types.Tag) bool { return *t.Key == "instanceID" })
+	// dhBackedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), *host.Tags[i].Value)
+	dhBackedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), *host.Tags[i].Value)
+	logging.Debugf("backedurl %s", dhBackedURL)
+
+	// On the replace we are gonna use the stack for create machine we will set the lock to true
+	// then when running the up we will set the target element for the lock
+	return nil
 }
 
 // TODO add loop until state with target state and timeout?
 func CheckState(hostID string) (*string, error) {
-	hosts, err := data.GetDedicatedHostState(data.DedicatedHostResquest{
+	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
 		HostID: hostID,
 	})
 	if err != nil {

@@ -19,9 +19,22 @@ type DedicatedHostResquest struct {
 	Tags   map[string]string
 }
 
+func GetDedicatedHost(hostID string) (*ec2Types.Host, error) {
+	hosts, err := GetDedicatedHosts(DedicatedHostResquest{
+		HostID: hostID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(hosts) != 1 {
+		return nil, fmt.Errorf("error getting the dedicated host %s", hostID)
+	}
+	return &hosts[0], nil
+}
+
 // This function check on all regions for the dedicated host
-// and return its state if found or error if no host is found within the hostID
-func GetDedicatedHostState(r DedicatedHostResquest) ([]ec2Types.Host, error) {
+// and return the list of hosts matching the request params
+func GetDedicatedHosts(r DedicatedHostResquest) ([]ec2Types.Host, error) {
 	regions, err := GetRegions()
 	if err != nil {
 		return nil, err
@@ -73,17 +86,27 @@ func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2
 	}
 	client := ec2.NewFromConfig(cfg)
 	// Describe params
-	dhi := &ec2.DescribeHostsInput{}
+	stateKey := "state"
+	dhi := &ec2.DescribeHostsInput{
+		// state
+		Filter: []ec2Types.Filter{
+			{
+				Name: &stateKey,
+				Values: []string{
+					string(ec2Types.AllocationStateAvailable),
+					string(ec2Types.AllocationStatePending)},
+			},
+		},
+	}
 	if len(r.HostID) > 0 {
 		dhi.HostIds = []string{r.HostID}
 	}
 	if len(r.Tags) > 0 {
 		tagKey := "tag-key"
-		dhi.Filter = []ec2Types.Filter{
-			{
+		dhi.Filter = append(dhi.Filter,
+			ec2Types.Filter{
 				Name:   &tagKey,
-				Values: maps.Keys(r.Tags)},
-		}
+				Values: maps.Keys(r.Tags)})
 	}
 	h, err := client.DescribeHosts(context.Background(), dhi)
 	if err != nil {
@@ -105,9 +128,8 @@ func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2
 func allTagsMatches(tags map[string]string, h ec2Types.Host) bool {
 	count := 0
 	for k, v := range tags {
-		if slices.Contains(h.Tags, ec2Types.Tag{
-			Key:   &k,
-			Value: &v,
+		if slices.ContainsFunc(h.Tags, func(t ec2Types.Tag) bool {
+			return *t.Key == k && *t.Value == v
 		}) {
 			count++
 		}

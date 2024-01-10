@@ -17,6 +17,8 @@ const (
 	cmdMacDesc        = "manage mac instances"
 	checkStateCmd     = "check-state"
 	checkStateCmdDesc = "check the state for a dedicated mac machine"
+	requestCmd        = "request"
+	requestCmdDesc    = "request mac machine"
 
 	arch              string = "arch"
 	archDesc          string = "mac architecture allowed values x86, m1, m2"
@@ -45,7 +47,7 @@ func GetMacCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.AddCommand(getMacCreate(), getMacDestroy(), getMacCheckState())
+	c.AddCommand(getMacCreate(), getMacDestroy(), getMacCheckState(), getMacRequest())
 	return c
 }
 
@@ -97,7 +99,51 @@ func getMacCreate() *cobra.Command {
 					Prefix:        "main",
 					Architecture:  viper.GetString(arch),
 					Version:       viper.GetString(osVersion),
-					HostID:        viper.GetString(hostID),
+					OnlyHost:      viper.IsSet(onlyHost),
+					OnlyMachine:   viper.IsSet(onlyMachine),
+					FixedLocation: viper.IsSet(fixedLocation),
+					Airgap:        viper.IsSet(airgap)}); err != nil {
+				logging.Error(err)
+			}
+			return nil
+		},
+	}
+	flagSet := pflag.NewFlagSet(params.CreateCmdName, pflag.ExitOnError)
+	flagSet.StringP(params.ConnectionDetailsOutput, "", "", params.ConnectionDetailsOutputDesc)
+	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
+	flagSet.StringP(arch, "", archDefault, archDesc)
+	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
+	flagSet.StringP(hostID, "", "", hostIDDesc)
+	flagSet.Bool(onlyHost, false, onlyHostDesc)
+	flagSet.Bool(onlyMachine, false, onlyMachineDesc)
+	flagSet.Bool(fixedLocation, false, fixedLocationDesc)
+	flagSet.Bool(airgap, false, airgapDesc)
+	c.PersistentFlags().AddFlagSet(flagSet)
+	return c
+}
+
+func getMacRequest() *cobra.Command {
+	c := &cobra.Command{
+		Use:   requestCmd,
+		Short: requestCmd,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			// Initialize context
+			qenvsContext.Init(
+				viper.GetString(params.ProjectName),
+				viper.GetString(params.BackedURL),
+				viper.GetString(params.ConnectionDetailsOutput),
+				viper.GetStringMapString(params.Tags))
+
+			// Run create
+			if err := mac.Request(
+				&mac.MacRequest{
+					Prefix:        "main",
+					Architecture:  viper.GetString(arch),
+					Version:       viper.GetString(osVersion),
 					OnlyHost:      viper.IsSet(onlyHost),
 					OnlyMachine:   viper.IsSet(onlyMachine),
 					FixedLocation: viper.IsSet(fixedLocation),

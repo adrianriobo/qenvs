@@ -1,7 +1,6 @@
 package mac
 
 import (
-	"context"
 	_ "embed"
 	"fmt"
 
@@ -9,6 +8,7 @@ import (
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	infra "github.com/adrianriobo/qenvs/pkg/provider"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
+	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/bastion"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/network"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/ami"
@@ -19,9 +19,8 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/provider/util/security"
 	"github.com/adrianriobo/qenvs/pkg/util"
 	"github.com/adrianriobo/qenvs/pkg/util/file"
+	"github.com/adrianriobo/qenvs/pkg/util/logging"
 	resourcesUtil "github.com/adrianriobo/qenvs/pkg/util/resources"
-	"github.com/aws/aws-sdk-go-v2/config"
-	awsEC2 "github.com/aws/aws-sdk-go-v2/service/ec2"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
@@ -38,11 +37,16 @@ type userDataValues struct {
 	Password string
 }
 
+type locked struct {
+	pulumi.ResourceState
+	Lock bool
+}
+
 // this creates the stack for the mac machine
 func (r *MacRequest) createMacMachine() error {
 	// If request does not set onlyHost we will create the mac machine
 	if len(r.AvailabilityZone) == 0 {
-		dedicatedHostAZ, err := getDedicatedHostZoneName(r.HostID)
+		dedicatedHostAZ, err := getDedicatedHostAZName()
 		if err != nil {
 			return err
 		}
@@ -139,6 +143,21 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 		return err
 	}
 	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputUserPassword), userPassword.Result)
+	// Create a lock on the machine
+	if err := newMachineLock(ctx,
+		resourcesUtil.GetResourceName(
+			r.Prefix, awsMacMachineID, "mac-lock"), true); err != nil {
+		return err
+	}
+	// Check if replace is needed
+	if r.Replace {
+		// use the replace
+		archID := awsArchIDbyArch[r.Architecture]
+		macAMIKey := fmt.Sprintf("%s-%s", archID, r.Version)
+		macAMIID := macAMIs[macAMIKey]
+		logging.Debugf("%s", macAMIID)
+	}
+
 	return r.readiness(ctx, i, keyResources.PrivateKey, bastion, []pulumi.Resource{bc})
 }
 
@@ -162,19 +181,18 @@ func (r *MacRequest) manageResultsMachine(stackResult auto.UpResult) error {
 // this function will return the AZ for the dedicated host
 // dedicated host are tied to an specific Az, as so we need to create
 // all resources within the mac machine on that specific region
-func getDedicatedHostZoneName(dhID string) (*string, error) {
-	cfg, err := config.LoadDefaultConfig(context.TODO())
-	if err != nil {
-		return nil, err
-	}
-	client := awsEC2.NewFromConfig(cfg)
-	dh, err := client.DescribeHosts(context.Background(), &awsEC2.DescribeHostsInput{
-		HostIds: []string{dhID},
+func getDedicatedHostAZName() (*string, error) {
+	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
+		Tags: qenvsContext.GetTags(),
 	})
 	if err != nil {
 		return nil, err
 	}
-	return dh.Hosts[0].AvailabilityZone, nil
+	// TODO initial support
+	if len(hosts) != 1 {
+		return nil, fmt.Errorf("unexpected number of hosts")
+	}
+	return hosts[0].AvailabilityZone, nil
 }
 
 // security group for mac machine with ingress rules for ssh and vnc
@@ -218,7 +236,7 @@ func (r *MacRequest) instance(ctx *pulumi.Context,
 	securityGroups pulumi.StringArray,
 ) (*ec2.Instance, error) {
 	instanceArgs := ec2.InstanceArgs{
-		HostId:                   pulumi.String(r.HostID),
+		HostId:                   pulumi.String(*r.dedicatedHost.HostId),
 		SubnetId:                 subnet.ID(),
 		Ami:                      pulumi.String(ami.Id),
 		InstanceType:             pulumi.String(macTypesByArch[r.Architecture]),
@@ -333,4 +351,15 @@ func remoteCommandArgs(
 
 	}
 	return ca
+}
+
+// This will create mark to see if machine is lock or free
+func newMachineLock(ctx *pulumi.Context, name string, lockedValue bool, opts ...pulumi.ResourceOption) error {
+	return ctx.RegisterComponentResource(
+		"rh:qe:aws:mac:lock",
+		name,
+		&locked{
+			Lock: lockedValue,
+		},
+		opts...)
 }
