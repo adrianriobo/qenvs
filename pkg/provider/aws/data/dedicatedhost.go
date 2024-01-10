@@ -5,15 +5,18 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/adrianriobo/qenvs/pkg/util"
 	"github.com/aws/aws-sdk-go-v2/config"
+	"golang.org/x/exp/maps"
+	"golang.org/x/exp/slices"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
 type DedicatedHostResquest struct {
-	HostID  string
-	TagKeys []string
+	HostID string
+	Tags   map[string]string
 }
 
 // This function check on all regions for the dedicated host
@@ -59,21 +62,6 @@ func GetDedicatedHostState(r DedicatedHostResquest) ([]ec2Types.Host, error) {
 	return hosts, nil
 }
 
-// // This funcion check on a specific region if a hosts with the id or the filters exists
-// // and returns its state
-// // For the time being
-// func getDedicatedHostStateByRegion(hostID string, regionName string) (*ec2Types.AllocationState, error) {
-// 	hosts, err := getDedicatedHostByRegion(
-// 		DedicatedHostResquest{HostID: hostID}, regionName)
-// 	if err != nil {
-// 		return nil, err
-// 	}
-// 	if len(hosts) != 1 {
-// 		return nil, fmt.Errorf("unexpected number of hosts")
-// 	}
-// 	return &hosts[0].State, nil
-// }
-
 func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2Types.Host, error) {
 	var cfgOpts config.LoadOptionsFunc
 	if len(regionName) > 0 {
@@ -89,12 +77,12 @@ func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2
 	if len(r.HostID) > 0 {
 		dhi.HostIds = []string{r.HostID}
 	}
-	if len(r.TagKeys) > 0 {
+	if len(r.Tags) > 0 {
 		tagKey := "tag-key"
 		dhi.Filter = []ec2Types.Filter{
 			{
 				Name:   &tagKey,
-				Values: r.TagKeys},
+				Values: maps.Keys(r.Tags)},
 		}
 	}
 	h, err := client.DescribeHosts(context.Background(), dhi)
@@ -104,5 +92,25 @@ func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2
 	if len(h.Hosts) == 0 {
 		return nil, fmt.Errorf("dedicated host was not found on current region")
 	}
+	if len(r.Tags) > 0 {
+		return util.ArrayFilter(h.Hosts,
+			func(h ec2Types.Host) bool {
+				return allTagsMatches(r.Tags, h)
+			}), nil
+	}
 	return h.Hosts, nil
+}
+
+// Check if a host contais exactly all tags defined by tags param
+func allTagsMatches(tags map[string]string, h ec2Types.Host) bool {
+	count := 0
+	for k, v := range tags {
+		if slices.Contains(h.Tags, ec2Types.Tag{
+			Key:   &k,
+			Value: &v,
+		}) {
+			count++
+		}
+	}
+	return count == len(tags)
 }

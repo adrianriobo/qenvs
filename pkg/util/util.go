@@ -12,6 +12,16 @@ func If[T any](cond bool, vtrue, vfalse T) T {
 	return vfalse
 }
 
+func ArrayFilter[T any](source []T, filter func(item T) bool) []T {
+	var result []T
+	for _, item := range source {
+		if filter(item) {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
 func ArrayCast[T any](source []interface{}) []T {
 	var result []T
 	for _, item := range source {
