@@ -8,7 +8,6 @@ import (
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	infra "github.com/adrianriobo/qenvs/pkg/provider"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
-	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/bastion"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/network"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/ami"
@@ -21,12 +20,15 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/util/file"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 	resourcesUtil "github.com/adrianriobo/qenvs/pkg/util/resources"
+
+	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	"github.com/pulumi/pulumi-tls/sdk/v5/go/tls"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
+	"golang.org/x/exp/slices"
 )
 
 //go:embed bootstrap.sh
@@ -42,21 +44,73 @@ type locked struct {
 	Lock bool
 }
 
+// This function will use the information from the
+// dedicated host holding the mac machine will check if stack exists
+// if exists will get the lock value from it
+func isMacMachineLocked(prefix string, dh ec2Types.Host) (bool, error) {
+	i := slices.IndexFunc(dh.Tags, func(t ec2Types.Tag) bool { return *t.Key == backedURLTagName })
+	dhBackedURL := *dh.Tags[i].Value
+	logging.Debugf("backedurl %s", dhBackedURL)
+	// Get the az from the dh
+	az := *dh.AvailabilityZone
+	region := az[:len(az)-1]
+	// Check the stack
+	s, err := manager.CheckStack(manager.Stack{
+		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
+		ProjectName: qenvsContext.GetInstanceName(),
+		BackedURL:   dhBackedURL,
+		ProviderCredentials: aws.GetClouProviderCredentials(
+			map[string]string{
+				aws.CONFIG_AWS_REGION: region}),
+	})
+	if err != nil {
+		return false, err
+	}
+	outputs, err := manager.GetOutputs(s)
+	if err != nil {
+		return false, err
+	}
+	return outputs[fmt.Sprintf("%s-%s", prefix, outputLock)].Value.(bool), nil
+}
+
+// Release will set the lock as false
+func (r *MacRequest) releaseLocked(dh ec2Types.Host) error {
+	i := slices.IndexFunc(dh.Tags, func(t ec2Types.Tag) bool { return *t.Key == backedURLTagName })
+	dhBackedURL := *dh.Tags[i].Value
+	logging.Debugf("backedurl %s", dhBackedURL)
+	// Get the az from the dh
+	az := *dh.AvailabilityZone
+	region := az[:len(az)-1]
+	// Check the stack
+	sr, _ := manager.UpStack(manager.Stack{
+		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
+		ProjectName: qenvsContext.GetInstanceName(),
+		BackedURL:   dhBackedURL,
+		ProviderCredentials: aws.GetClouProviderCredentials(
+			map[string]string{
+				aws.CONFIG_AWS_REGION: region}),
+		DeployFunc: r.deployerMachine,
+	})
+	return r.manageResultsMachine(sr)
+}
+
 // this creates the stack for the mac machine
 func (r *MacRequest) createMacMachine() error {
 	// If request does not set onlyHost we will create the mac machine
 	if len(r.AvailabilityZone) == 0 {
-		dedicatedHostAZ, err := getDedicatedHostAZName()
-		if err != nil {
-			return err
-		}
-		r.AvailabilityZone = *dedicatedHostAZ
+		r.AvailabilityZone = *r.dedicatedHost.AvailabilityZone
 	}
 	region := r.AvailabilityZone[:len(r.AvailabilityZone)-1]
+	i := slices.IndexFunc(
+		r.dedicatedHost.Tags,
+		func(t ec2Types.Tag) bool {
+			return *t.Key == backedURLTagName
+		})
+	dhBackedURL := r.dedicatedHost.Tags[i].Value
 	cs := manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
 		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   qenvsContext.GetBackedURL(),
+		BackedURL:   *dhBackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
 				aws.CONFIG_AWS_REGION: region}),
@@ -146,9 +200,10 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 	// Create a lock on the machine
 	if err := newMachineLock(ctx,
 		resourcesUtil.GetResourceName(
-			r.Prefix, awsMacMachineID, "mac-lock"), true); err != nil {
+			r.Prefix, awsMacMachineID, "mac-lock"), r.Lock); err != nil {
 		return err
 	}
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputLock), pulumi.Bool(r.Lock))
 	// Check if replace is needed
 	if r.Replace {
 		// use the replace
@@ -157,7 +212,6 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 		macAMIID := macAMIs[macAMIKey]
 		logging.Debugf("%s", macAMIID)
 	}
-
 	return r.readiness(ctx, i, keyResources.PrivateKey, bastion, []pulumi.Resource{bc})
 }
 
@@ -176,23 +230,6 @@ func (r *MacRequest) manageResultsMachine(stackResult auto.UpResult) error {
 		}
 	}
 	return output.Write(stackResult, qenvsContext.GetResultsOutputPath(), results)
-}
-
-// this function will return the AZ for the dedicated host
-// dedicated host are tied to an specific Az, as so we need to create
-// all resources within the mac machine on that specific region
-func getDedicatedHostAZName() (*string, error) {
-	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
-		Tags: qenvsContext.GetTags(),
-	})
-	if err != nil {
-		return nil, err
-	}
-	// TODO initial support
-	if len(hosts) != 1 {
-		return nil, fmt.Errorf("unexpected number of hosts")
-	}
-	return hosts[0].AvailabilityZone, nil
 }
 
 // security group for mac machine with ingress rules for ssh and vnc
@@ -356,7 +393,7 @@ func remoteCommandArgs(
 // This will create mark to see if machine is lock or free
 func newMachineLock(ctx *pulumi.Context, name string, lockedValue bool, opts ...pulumi.ResourceOption) error {
 	return ctx.RegisterComponentResource(
-		"rh:qe:aws:mac:lock",
+		urnLock,
 		name,
 		&locked{
 			Lock: lockedValue,

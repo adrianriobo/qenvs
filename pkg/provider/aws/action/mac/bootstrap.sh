@@ -20,8 +20,6 @@ sudo defaults write /Library/Preferences/.GlobalPreferences.plist com.apple.secu
 sudo defaults write /Library/Preferences/.GlobalPreferences.plist com.apple.autologout.AutoLogOutDelay -int 0
 
 # TODO need to change the authorized key
-# Set the authorized keys according to the private key
-# Invoke-Command -ScriptBlock { New-Item -Path C:\Users\{{.Username}}\.ssh -Name "authorized_keys" -ItemType "file" -Value "{{.AuthorizedKey}}" -Force } -Session $s
 
 # autologin to take effect
 # run reboot on background to successfully finish the remote exec of the script

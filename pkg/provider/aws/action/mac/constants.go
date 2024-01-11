@@ -6,6 +6,9 @@ const (
 
 	awsMacMachineID = "amm"
 
+	urnLock = "rh:qe:aws:mac:lock"
+
+	outputLock            = "ammLock"
 	outputHost            = "ammHost"
 	outputUsername        = "ammUsername"
 	outputUserPassword    = "ammUserPassword"

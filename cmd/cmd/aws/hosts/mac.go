@@ -19,6 +19,8 @@ const (
 	checkStateCmdDesc = "check the state for a dedicated mac machine"
 	requestCmd        = "request"
 	requestCmdDesc    = "request mac machine"
+	releaseCmd        = "release"
+	releaseCmdDesc    = "request mac machine"
 
 	arch              string = "arch"
 	archDesc          string = "mac architecture allowed values x86, m1, m2"
@@ -47,7 +49,7 @@ func GetMacCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.AddCommand(getMacCreate(), getMacDestroy(), getMacCheckState(), getMacRequest())
+	c.AddCommand(getMacCreate(), getMacDestroy(), getMacCheckState(), getMacRequest(), getMacRelease())
 	return c
 }
 
@@ -144,7 +146,6 @@ func getMacRequest() *cobra.Command {
 					Prefix:        "main",
 					Architecture:  viper.GetString(arch),
 					Version:       viper.GetString(osVersion),
-					OnlyHost:      viper.IsSet(onlyHost),
 					OnlyMachine:   viper.IsSet(onlyMachine),
 					FixedLocation: viper.IsSet(fixedLocation),
 					Airgap:        viper.IsSet(airgap)}); err != nil {
@@ -153,16 +154,50 @@ func getMacRequest() *cobra.Command {
 			return nil
 		},
 	}
-	flagSet := pflag.NewFlagSet(params.CreateCmdName, pflag.ExitOnError)
+	flagSet := pflag.NewFlagSet(requestCmd, pflag.ExitOnError)
 	flagSet.StringP(params.ConnectionDetailsOutput, "", "", params.ConnectionDetailsOutputDesc)
 	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	flagSet.StringP(arch, "", archDefault, archDesc)
 	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
-	flagSet.StringP(hostID, "", "", hostIDDesc)
-	flagSet.Bool(onlyHost, false, onlyHostDesc)
 	flagSet.Bool(onlyMachine, false, onlyMachineDesc)
 	flagSet.Bool(fixedLocation, false, fixedLocationDesc)
 	flagSet.Bool(airgap, false, airgapDesc)
+	c.PersistentFlags().AddFlagSet(flagSet)
+	return c
+}
+
+func getMacRelease() *cobra.Command {
+	c := &cobra.Command{
+		Use:   releaseCmd,
+		Short: releaseCmd,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			if err := viper.BindPFlags(cmd.Flags()); err != nil {
+				return err
+			}
+
+			// Initialize context
+			qenvsContext.Init(
+				viper.GetString(params.ProjectName),
+				viper.GetString(params.BackedURL),
+				viper.GetString(params.ConnectionDetailsOutput),
+				viper.GetStringMapString(params.Tags))
+
+			// Run create
+			if err := mac.Release(
+				&mac.MacRequest{
+					Prefix:       "main",
+					Architecture: viper.GetString(arch),
+					Version:      viper.GetString(osVersion),
+				}); err != nil {
+				logging.Error(err)
+			}
+			return nil
+		},
+	}
+	flagSet := pflag.NewFlagSet(releaseCmd, pflag.ExitOnError)
+	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
+	flagSet.StringP(arch, "", archDefault, archDesc)
+	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
 	return c
 }

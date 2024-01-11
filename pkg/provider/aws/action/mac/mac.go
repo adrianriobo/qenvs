@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"golang.org/x/exp/slices"
-
 	"github.com/adrianriobo/qenvs/pkg/manager"
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
@@ -34,6 +32,7 @@ type MacRequest struct {
 
 	// If replace flag is true we will handle create / destroy as replace root volume
 	Replace bool
+	Lock    bool
 
 	// We will create a dh or pick one which will be used to install / replace a mac machine
 	dedicatedHost *ec2Types.Host
@@ -75,6 +74,7 @@ func Create(r *MacRequest) (err error) {
 	// some logic based on states for dh + locks on machines on the dh
 	r.dedicatedHost = &hosts[0]
 	if !r.OnlyHost {
+		r.Lock = true
 		// if not only host the mac machine will be created
 		if !r.Airgap {
 			return r.createMacMachine()
@@ -101,17 +101,34 @@ func Request(r *MacRequest) error {
 	// There is a dedicated host to be used
 	// Can be one or n
 	// Need to get
-	host := hosts[0]
+	// host := hosts[0]
 	// Now get the backed url for the host decidedinstance
 
-	i := slices.IndexFunc(host.Tags, func(t ec2Types.Tag) bool { return *t.Key == "instanceID" })
-	// dhBackedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), *host.Tags[i].Value)
-	dhBackedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), *host.Tags[i].Value)
-	logging.Debugf("backedurl %s", dhBackedURL)
-
+	isLocked, err := isMacMachineLocked(r.Prefix, hosts[0])
+	if err != nil {
+		return err
+	}
+	logging.Debugf("%v", isLocked)
 	// On the replace we are gonna use the stack for create machine we will set the lock to true
 	// then when running the up we will set the target element for the lock
+	// Now we need to pick the stack for mac machine and check the lock value
 	return nil
+}
+
+func Release(r *MacRequest) error {
+	// TODO need to thing on when you have pool, needs to identify which one is being released
+	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
+		Tags: qenvsContext.GetTags(),
+	})
+	if err != nil {
+		return err
+	}
+	if len(hosts) == 0 {
+		return fmt.Errorf("not hosts found")
+	}
+	r.dedicatedHost = &hosts[0]
+	r.Lock = false
+	return r.releaseLocked(hosts[0])
 }
 
 // TODO add loop until state with target state and timeout?
