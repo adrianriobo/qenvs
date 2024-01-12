@@ -23,14 +23,12 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 	resourcesUtil "github.com/adrianriobo/qenvs/pkg/util/resources"
 
-	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi-command/sdk/go/command/remote"
 	"github.com/pulumi/pulumi-random/sdk/v4/go/random"
 	"github.com/pulumi/pulumi-tls/sdk/v5/go/tls"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
-	"golang.org/x/exp/slices"
 )
 
 //go:embed bootstrap.sh
@@ -113,30 +111,17 @@ func (r *MacRequest) releaseLocked(h *HostInformation) error {
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createMacMachine(dhAZ *string, host *ec2Types.Host) error {
-	r.AvailabilityZone = *dhAZ
-	r.dedicatedHost = host
-	// TODO we need to check wich host we will use
-	// some logic based on states for dh + locks on machines on the dh
+func (r *MacRequest) createMacMachine(h *HostInformation) error {
+	r.AvailabilityZone = *h.Host.AvailabilityZone
+	r.dedicatedHost = h.Host
 	r.Lock = true
-	// If request does not set onlyHost we will create the mac machine
-	if len(r.AvailabilityZone) == 0 {
-		r.AvailabilityZone = *r.dedicatedHost.AvailabilityZone
-	}
-	region := r.AvailabilityZone[:len(r.AvailabilityZone)-1]
-	i := slices.IndexFunc(
-		r.dedicatedHost.Tags,
-		func(t ec2Types.Tag) bool {
-			return *t.Key == backedURLTagName
-		})
-	dhBackedURL := r.dedicatedHost.Tags[i].Value
 	cs := manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
 		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   *dhBackedURL,
+		BackedURL:   *h.BackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
-				aws.CONFIG_AWS_REGION: region}),
+				aws.CONFIG_AWS_REGION: *h.Region}),
 		DeployFunc: r.deployerMachine,
 	}
 	sr, _ := manager.UpStack(cs)
@@ -144,14 +129,14 @@ func (r *MacRequest) createMacMachine(dhAZ *string, host *ec2Types.Host) error {
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createAirgapMacMachine(dhAZ *string, host *ec2Types.Host) error {
+func (r *MacRequest) createAirgapMacMachine(h *HostInformation) error {
 	r.airgapPhaseConnectivity = network.ON
-	err := r.createMacMachine(dhAZ, host)
+	err := r.createMacMachine(h)
 	if err != nil {
 		return nil
 	}
 	r.airgapPhaseConnectivity = network.OFF
-	return r.createMacMachine(dhAZ, host)
+	return r.createMacMachine(h)
 }
 
 // Main function to deploy all requried resources to azure

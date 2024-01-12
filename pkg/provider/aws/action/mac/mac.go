@@ -48,21 +48,23 @@ func Create(r *MacRequest) (err error) {
 	}
 	r.AvailabilityZone = *az
 	// No host id means need to create dedicated host
-	host, dhAZ, err := r.createDedicatedHost()
+	dh, err := r.createDedicatedHost()
 	if err != nil {
 		return err
 	}
 	// if not only host the mac machine will be created
 	if !r.Airgap {
-		return r.createMacMachine(dhAZ, host)
+		return r.createMacMachine(dh)
 	}
 	// Airgap scneario requires orchestration
-	return r.createAirgapMacMachine(dhAZ, host)
+	return r.createAirgapMacMachine(dh)
 }
 
 // This function will check if mac machine exists based on labeling
 // If it will exists It will check if it is locked (where should we add the lock?)
 // If lock free we will use replace root volume and set the lock
+
+// TODO think how this would afferct airgap / proxy mechanism
 func Request(r *MacRequest) error {
 	hostInformation, err := getMatchingHostsInformation(r.Architecture)
 	if err != nil {
@@ -71,6 +73,7 @@ func Request(r *MacRequest) error {
 	return replaceMachine(r.Prefix, *hostInformation)
 }
 
+// This will release the lock on the machine allowing new request to get the machine
 func Release(r *MacRequest) error {
 	hostInformation, err := getMatchingHostsInformation(r.Architecture)
 	if err != nil {

@@ -10,35 +10,39 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/provider/util/output"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 	resourcesUtil "github.com/adrianriobo/qenvs/pkg/util/resources"
-	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 	"github.com/pulumi/pulumi-aws/sdk/v6/go/aws/ec2"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
 // this creates the stack for the dedicated host
-func (r *MacRequest) createDedicatedHost() (*ec2Types.Host, *string, error) {
+func (r *MacRequest) createDedicatedHost() (*HostInformation, error) {
 	logging.Debugf("creating dedicated host for mac machine %s", r.Architecture)
+	backedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), qenvsContext.GetID())
 	cs := manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackDedicatedHost),
 		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), qenvsContext.GetID()),
+		BackedURL:   backedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
 				aws.CONFIG_AWS_REGION: r.Region}),
 		DeployFunc: r.deployerDedicatedHost,
 	}
 	sr, _ := manager.UpStack(cs)
-	dhID, dhAZ, err := r.manageResultsDedicatedHost(sr)
+	dhID, _, err := r.manageResultsDedicatedHost(sr)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	logging.Debugf("dedicated host with host id %s has been created successfully", *dhID)
 	host, err := data.GetDedicatedHost(*dhID)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return host, dhAZ, nil
+	return &HostInformation{
+		BackedURL: &backedURL,
+		Region:    &r.Region,
+		Host:      host,
+	}, nil
 }
 
 // this function will create the dedicated host resource
