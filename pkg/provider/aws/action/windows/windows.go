@@ -130,9 +130,11 @@ func Create(r *Request) error {
 
 // Will destroy resources related to machine
 func Destroy() (err error) {
-	err = aws.DestroyStack(stackName)
-	if err != nil {
-		return
+	if err := aws.DestroyStack(
+		aws.DestroyStackRequest{
+			Stackname: stackName,
+		}); err != nil {
+		return err
 	}
 	if amiCopy.Exist() {
 		err = amiCopy.Destroy()

@@ -1,8 +1,6 @@
 package hosts
 
 import (
-	"fmt"
-
 	params "github.com/adrianriobo/qenvs/cmd/cmd/constants"
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/action/mac"
@@ -13,14 +11,12 @@ import (
 )
 
 const (
-	cmdMac            = "mac"
-	cmdMacDesc        = "manage mac instances"
-	checkStateCmd     = "check-state"
-	checkStateCmdDesc = "check the state for a dedicated mac machine"
-	requestCmd        = "request"
-	requestCmdDesc    = "request mac machine"
-	releaseCmd        = "release"
-	releaseCmdDesc    = "request mac machine"
+	cmdMac         = "mac"
+	cmdMacDesc     = "manage mac instances"
+	requestCmd     = "request"
+	requestCmdDesc = "request mac machine"
+	releaseCmd     = "release"
+	releaseCmdDesc = "release mac machine"
 
 	arch              string = "arch"
 	archDesc          string = "mac architecture allowed values x86, m1, m2"
@@ -28,12 +24,6 @@ const (
 	osVersion         string = "version"
 	osVersionDesc     string = "macos operating system vestion 11, 12 on x86 and m1/m2; 13, 14 on all archs"
 	osDefault         string = "14"
-	hostID            string = "host-id"
-	hostIDDesc        string = "host id to create the mac instance. If the param is not pass the dedicated host will be created"
-	onlyHost          string = "only-host"
-	onlyHostDesc      string = "if this flag is set only the host will be created / destroyed"
-	onlyMachine       string = "only-machine"
-	onlyMachineDesc   string = "if this flag is set only the machine will be destroyed"
 	fixedLocation     string = "fixed-location"
 	fixedLocationDesc string = "if this flag is set the host will be created only on the region set by the AWS Env (AWS_DEFAULT_REGION)"
 )
@@ -49,33 +39,7 @@ func GetMacCmd() *cobra.Command {
 			return nil
 		},
 	}
-	c.AddCommand(getMacCreate(), getMacDestroy(), getMacCheckState(), getMacRequest(), getMacRelease())
-	return c
-}
-
-func getMacCheckState() *cobra.Command {
-	c := &cobra.Command{
-		Use:   checkStateCmd,
-		Short: checkStateCmdDesc,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := viper.BindPFlags(cmd.Flags()); err != nil {
-				return err
-			}
-			state, err := mac.CheckState(viper.GetString(hostID))
-			if err != nil {
-				logging.Error(err)
-				return err
-			}
-			fmt.Printf("%s", *state)
-			return nil
-		},
-	}
-	flagSet := pflag.NewFlagSet(params.CreateCmdName, pflag.ExitOnError)
-	flagSet.StringP(hostID, "", "", hostIDDesc)
-	c.PersistentFlags().AddFlagSet(flagSet)
-	if err := c.MarkPersistentFlagRequired(hostID); err != nil {
-		logging.Error(err)
-	}
+	c.AddCommand(getMacCreate(), getMacDestroy(), getMacRequest(), getMacRelease())
 	return c
 }
 
@@ -101,8 +65,6 @@ func getMacCreate() *cobra.Command {
 					Prefix:        "main",
 					Architecture:  viper.GetString(arch),
 					Version:       viper.GetString(osVersion),
-					OnlyHost:      viper.IsSet(onlyHost),
-					OnlyMachine:   viper.IsSet(onlyMachine),
 					FixedLocation: viper.IsSet(fixedLocation),
 					Airgap:        viper.IsSet(airgap)}); err != nil {
 				logging.Error(err)
@@ -115,9 +77,6 @@ func getMacCreate() *cobra.Command {
 	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	flagSet.StringP(arch, "", archDefault, archDesc)
 	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
-	flagSet.StringP(hostID, "", "", hostIDDesc)
-	flagSet.Bool(onlyHost, false, onlyHostDesc)
-	flagSet.Bool(onlyMachine, false, onlyMachineDesc)
 	flagSet.Bool(fixedLocation, false, fixedLocationDesc)
 	flagSet.Bool(airgap, false, airgapDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
@@ -146,7 +105,6 @@ func getMacRequest() *cobra.Command {
 					Prefix:        "main",
 					Architecture:  viper.GetString(arch),
 					Version:       viper.GetString(osVersion),
-					OnlyMachine:   viper.IsSet(onlyMachine),
 					FixedLocation: viper.IsSet(fixedLocation),
 					Airgap:        viper.IsSet(airgap)}); err != nil {
 				logging.Error(err)
@@ -159,7 +117,6 @@ func getMacRequest() *cobra.Command {
 	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	flagSet.StringP(arch, "", archDefault, archDesc)
 	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
-	flagSet.Bool(onlyMachine, false, onlyMachineDesc)
 	flagSet.Bool(fixedLocation, false, fixedLocationDesc)
 	flagSet.Bool(airgap, false, airgapDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
@@ -215,19 +172,13 @@ func getMacDestroy() *cobra.Command {
 				viper.GetString(params.ProjectName),
 				viper.GetString(params.BackedURL))
 
-			if err := mac.Destroy(
-				&mac.MacRequest{
-					Prefix:      "main",
-					OnlyHost:    viper.IsSet(onlyHost),
-					OnlyMachine: viper.IsSet(onlyMachine)}); err != nil {
+			if err := mac.Destroy("main"); err != nil {
 				logging.Error(err)
 			}
 			return nil
 		},
 	}
 	flagSet := pflag.NewFlagSet(params.DestroyCmdName, pflag.ExitOnError)
-	flagSet.Bool(onlyHost, false, onlyHostDesc)
-	flagSet.Bool(onlyMachine, false, onlyMachineDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
 	return c
 }

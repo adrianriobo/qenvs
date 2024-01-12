@@ -8,7 +8,6 @@ import (
 	"github.com/adrianriobo/qenvs/pkg/util"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"golang.org/x/exp/maps"
-	"golang.org/x/exp/slices"
 
 	"github.com/aws/aws-sdk-go-v2/service/ec2"
 	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -118,21 +117,8 @@ func getDedicatedHostByRegion(r DedicatedHostResquest, regionName string) ([]ec2
 	if len(r.Tags) > 0 {
 		return util.ArrayFilter(h.Hosts,
 			func(h ec2Types.Host) bool {
-				return allTagsMatches(r.Tags, h)
+				return allTagsMatches(r.Tags, h.Tags)
 			}), nil
 	}
 	return h.Hosts, nil
-}
-
-// Check if a host contais exactly all tags defined by tags param
-func allTagsMatches(tags map[string]string, h ec2Types.Host) bool {
-	count := 0
-	for k, v := range tags {
-		if slices.ContainsFunc(h.Tags, func(t ec2Types.Tag) bool {
-			return *t.Key == k && *t.Value == v
-		}) {
-			count++
-		}
-	}
-	return count == len(tags)
 }

@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/adrianriobo/qenvs/pkg/manager"
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
@@ -19,8 +18,6 @@ type MacRequest struct {
 	Prefix           string
 	Architecture     string
 	Version          string
-	OnlyHost         bool
-	OnlyMachine      bool
 	FixedLocation    bool
 	Region           string
 	AvailabilityZone string
@@ -73,46 +70,24 @@ func Create(r *MacRequest) (err error) {
 	// TODO we need to check wich host we will use
 	// some logic based on states for dh + locks on machines on the dh
 	r.dedicatedHost = &hosts[0]
-	if !r.OnlyHost {
-		r.Lock = true
-		// if not only host the mac machine will be created
-		if !r.Airgap {
-			return r.createMacMachine()
-		}
-		// Airgap scneario requires orchestration
-		return r.createAirgapMacMachine()
+	r.Lock = true
+	// if not only host the mac machine will be created
+	if !r.Airgap {
+		return r.createMacMachine()
 	}
-	return nil
+	// Airgap scneario requires orchestration
+	return r.createAirgapMacMachine()
 }
 
 // This function will check if mac machine exists based on labeling
 // If it will exists It will check if it is locked (where should we add the lock?)
 // If lock free we will use replace root volume and set the lock
 func Request(r *MacRequest) error {
-	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
-		Tags: qenvsContext.GetTags(),
-	})
+	hostInformation, err := getMatchingHostsInformation()
 	if err != nil {
 		return err
 	}
-	if len(hosts) == 0 {
-		return fmt.Errorf("not hosts found")
-	}
-	// There is a dedicated host to be used
-	// Can be one or n
-	// Need to get
-	// host := hosts[0]
-	// Now get the backed url for the host decidedinstance
-
-	isLocked, err := isMacMachineLocked(r.Prefix, hosts[0])
-	if err != nil {
-		return err
-	}
-	logging.Debugf("%v", isLocked)
-	// On the replace we are gonna use the stack for create machine we will set the lock to true
-	// then when running the up we will set the target element for the lock
-	// Now we need to pick the stack for mac machine and check the lock value
-	return nil
+	return replaceMachine(r.Prefix, *hostInformation)
 }
 
 func Release(r *MacRequest) error {
@@ -131,43 +106,35 @@ func Release(r *MacRequest) error {
 	return r.releaseLocked(hosts[0])
 }
 
-// TODO add loop until state with target state and timeout?
-func CheckState(hostID string) (*string, error) {
-	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
-		HostID: hostID,
-	})
+// Initial scenario consider 1 machine
+// If we request destroy mac machine it will look for any machine
+// and check if it is locked if not locked it will destroy it
+func Destroy(prefix string) error {
+	hostInformation, err := getMatchingHostsInformation()
 	if err != nil {
-		return nil, err
+		return err
 	}
-	if len(hosts) != 1 {
-		return nil, fmt.Errorf("unexpected number of hosts")
+	if hostInformation.Host.State == ec2Types.AllocationStateAvailable {
+		return aws.DestroyStack(aws.DestroyStackRequest{
+			Stackname: stackDedicatedHost,
+			Region:    *hostInformation.Region,
+			BackedURL: *hostInformation.BackedURL,
+		})
 	}
-	state := fmt.Sprintf("%v", &hosts[0].State)
-	return &state, nil
-}
-
-// Will destroy resources related to machine
-func Destroy(r *MacRequest) (err error) {
-	var region *string
-	if !r.OnlyHost {
-		region, err = r.getRegionFromStack(stackMacMachine)
-		if err != nil {
-			return
-		}
-		if err = aws.DestroyStackByRegion(*region, stackMacMachine); err != nil {
-			return
-		}
+	// Dedicated host is not on a valid state to be deleted
+	// With same backedURL check if machine is locked
+	machineLocked, err := isMachineLocked(prefix, *hostInformation)
+	if err != nil {
+		return err
 	}
-	if !r.OnlyMachine {
-		// We need to get dedicated host region to set on stack
-		if region == nil {
-			region, err = r.getRegionFromStack(stackDedicatedHost)
-			if err != nil {
-				return
-			}
-		}
-		return aws.DestroyStackByRegion(*region, stackDedicatedHost)
+	if !machineLocked {
+		return aws.DestroyStack(aws.DestroyStackRequest{
+			Stackname: stackMacMachine,
+			Region:    *hostInformation.Region,
+			BackedURL: *hostInformation.BackedURL,
+		})
 	}
+	logging.Debug("nothing to be destroyed")
 	return nil
 }
 
@@ -217,26 +184,4 @@ func getAZ(r *MacRequest) (az *string, err error) {
 		}
 	}
 	return
-}
-
-// Mac machine can be dinamically moved across regions as it is
-// tied to the dedicated host we save the region on the stack to setu[
-// the AWS session
-func (r *MacRequest) getRegionFromStack(stackName string) (*string, error) {
-	stack, err := manager.CheckStack(manager.Stack{
-		ProjectName: qenvsContext.GetInstanceName(),
-		StackName:   qenvsContext.GetStackInstanceName(stackName),
-		BackedURL:   qenvsContext.GetBackedURL()})
-	if err != nil {
-		return nil, err
-	}
-	outputs, err := manager.GetOutputs(stack)
-	if err != nil {
-		return nil, err
-	}
-	region, ok := outputs[fmt.Sprintf("%s-%s", r.Prefix, outputRegion)].Value.(string)
-	if ok {
-		return &region, nil
-	}
-	return nil, fmt.Errorf("%s not found", fmt.Sprintf("%s-%s", r.Prefix, outputRegion))
 }

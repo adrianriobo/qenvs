@@ -8,9 +8,11 @@ import (
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	infra "github.com/adrianriobo/qenvs/pkg/provider"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
+	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/bastion"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/network"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/ami"
+	qEC2 "github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/compute"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/keypair"
 	securityGroup "github.com/adrianriobo/qenvs/pkg/provider/aws/services/ec2/security-group"
 	"github.com/adrianriobo/qenvs/pkg/provider/util/command"
@@ -44,24 +46,14 @@ type locked struct {
 	Lock bool
 }
 
-// This function will use the information from the
-// dedicated host holding the mac machine will check if stack exists
-// if exists will get the lock value from it
-func isMacMachineLocked(prefix string, dh ec2Types.Host) (bool, error) {
-	i := slices.IndexFunc(dh.Tags, func(t ec2Types.Tag) bool { return *t.Key == backedURLTagName })
-	dhBackedURL := *dh.Tags[i].Value
-	logging.Debugf("backedurl %s", dhBackedURL)
-	// Get the az from the dh
-	az := *dh.AvailabilityZone
-	region := az[:len(az)-1]
-	// Check the stack
+func isMachineLocked(prefix string, h HostInformation) (bool, error) {
 	s, err := manager.CheckStack(manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
 		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   dhBackedURL,
+		BackedURL:   *h.BackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
-				aws.CONFIG_AWS_REGION: region}),
+				aws.CONFIG_AWS_REGION: *h.Region}),
 	})
 	if err != nil {
 		return false, err
@@ -71,6 +63,37 @@ func isMacMachineLocked(prefix string, dh ec2Types.Host) (bool, error) {
 		return false, err
 	}
 	return outputs[fmt.Sprintf("%s-%s", prefix, outputLock)].Value.(bool), nil
+}
+
+// This function will use the information from the
+// dedicated host holding the mac machine will check if stack exists
+// if exists will get the lock value from it
+func replaceMachine(prefix string, h HostInformation) error {
+	machineLocked, err := isMachineLocked(prefix, h)
+	if err != nil {
+		return err
+	}
+	if !machineLocked {
+		instances, err := data.GetInstanceByRegion(data.InstanceResquest{
+			Tags: qenvsContext.GetTags(),
+		}, *h.Region)
+		if err != nil {
+			return err
+		}
+		logging.Debugf("%v", instances)
+		// TODO need to change the AMI ID to pick it based on labes? + copy across regions
+		t, err := qEC2.ReplaceRootVolume(
+			qEC2.ReplaceRootVolumeRequest{
+				Region:     *h.Region,
+				InstanceID: *instances[0].InstanceId,
+				AMIID:      "ami-04aaa6dc45616cb76",
+			})
+		if err != nil {
+			return err
+		}
+		logging.Debugf("%v", t)
+	}
+	return nil
 }
 
 // Release will set the lock as false
