@@ -97,28 +97,28 @@ func replaceMachine(prefix string, h HostInformation) error {
 }
 
 // Release will set the lock as false
-func (r *MacRequest) releaseLocked(dh ec2Types.Host) error {
-	i := slices.IndexFunc(dh.Tags, func(t ec2Types.Tag) bool { return *t.Key == backedURLTagName })
-	dhBackedURL := *dh.Tags[i].Value
-	logging.Debugf("backedurl %s", dhBackedURL)
-	// Get the az from the dh
-	az := *dh.AvailabilityZone
-	region := az[:len(az)-1]
+func (r *MacRequest) releaseLocked(h *HostInformation) error {
 	// Check the stack
+	r.Lock = false
 	sr, _ := manager.UpStack(manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
 		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   dhBackedURL,
+		BackedURL:   *h.BackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
-				aws.CONFIG_AWS_REGION: region}),
+				aws.CONFIG_AWS_REGION: *h.Region}),
 		DeployFunc: r.deployerMachine,
 	})
 	return r.manageResultsMachine(sr)
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createMacMachine() error {
+func (r *MacRequest) createMacMachine(dhAZ *string, host *ec2Types.Host) error {
+	r.AvailabilityZone = *dhAZ
+	r.dedicatedHost = host
+	// TODO we need to check wich host we will use
+	// some logic based on states for dh + locks on machines on the dh
+	r.Lock = true
 	// If request does not set onlyHost we will create the mac machine
 	if len(r.AvailabilityZone) == 0 {
 		r.AvailabilityZone = *r.dedicatedHost.AvailabilityZone
@@ -144,14 +144,14 @@ func (r *MacRequest) createMacMachine() error {
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createAirgapMacMachine() error {
+func (r *MacRequest) createAirgapMacMachine(dhAZ *string, host *ec2Types.Host) error {
 	r.airgapPhaseConnectivity = network.ON
-	err := r.createMacMachine()
+	err := r.createMacMachine(dhAZ, host)
 	if err != nil {
 		return nil
 	}
 	r.airgapPhaseConnectivity = network.OFF
-	return r.createMacMachine()
+	return r.createMacMachine(dhAZ, host)
 }
 
 // Main function to deploy all requried resources to azure

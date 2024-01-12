@@ -172,13 +172,16 @@ func getMacDestroy() *cobra.Command {
 				viper.GetString(params.ProjectName),
 				viper.GetString(params.BackedURL))
 
-			if err := mac.Destroy("main"); err != nil {
+			if err := mac.Destroy(
+				"main",
+				viper.GetString(arch)); err != nil {
 				logging.Error(err)
 			}
 			return nil
 		},
 	}
 	flagSet := pflag.NewFlagSet(params.DestroyCmdName, pflag.ExitOnError)
+	flagSet.StringP(arch, "", archDefault, archDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
 	return c
 }
