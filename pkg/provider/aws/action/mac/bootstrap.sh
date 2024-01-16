@@ -19,6 +19,9 @@ sudo defaults write /Library/Preferences/com.apple.loginwindow autoLoginUser "{{
 sudo defaults write /Library/Preferences/.GlobalPreferences.plist com.apple.securitypref.logoutvalue -int 0
 sudo defaults write /Library/Preferences/.GlobalPreferences.plist com.apple.autologout.AutoLogOutDelay -int 0
 
+# Override authorized key
+echo "{{.AuthorizedKey}}" | tee /Users/{{.Username}}/.ssh/authorized_keys
+
 # TODO need to change the authorized key
 
 # autologin to take effect

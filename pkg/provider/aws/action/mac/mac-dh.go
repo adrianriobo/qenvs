@@ -25,7 +25,7 @@ func (r *MacRequest) createDedicatedHost() (*HostInformation, error) {
 		BackedURL:   backedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
-				aws.CONFIG_AWS_REGION: r.Region}),
+				aws.CONFIG_AWS_REGION: *r.Region}),
 		DeployFunc: r.deployerDedicatedHost,
 	}
 	sr, _ := manager.UpStack(cs)
@@ -40,19 +40,19 @@ func (r *MacRequest) createDedicatedHost() (*HostInformation, error) {
 	}
 	return &HostInformation{
 		BackedURL: &backedURL,
-		Region:    &r.Region,
+		Region:    r.Region,
 		Host:      host,
 	}, nil
 }
 
 // this function will create the dedicated host resource
 func (r *MacRequest) deployerDedicatedHost(ctx *pulumi.Context) (err error) {
-	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(r.Region))
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(*r.Region))
 	dh, err := ec2.NewDedicatedHost(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "dh"),
 		&ec2.DedicatedHostArgs{
 			AutoPlacement:    pulumi.String("off"),
-			AvailabilityZone: pulumi.String(r.AvailabilityZone),
+			AvailabilityZone: pulumi.String(*r.AvailabilityZone),
 			InstanceType:     pulumi.String(macTypesByArch[r.Architecture]),
 			Tags: qenvsContext.ResourceTagsWithCustom(
 				map[string]string{
@@ -61,7 +61,7 @@ func (r *MacRequest) deployerDedicatedHost(ctx *pulumi.Context) (err error) {
 				}),
 		})
 	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputDedicatedHostID), dh.ID())
-	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputDedicatedHostAZ), pulumi.String(r.AvailabilityZone))
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputDedicatedHostAZ), pulumi.String(*r.AvailabilityZone))
 	if err != nil {
 		return err
 	}

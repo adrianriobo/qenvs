@@ -8,14 +8,15 @@ const (
 
 	urnLock = "rh:qe:aws:mac:lock"
 
-	outputLock            = "ammLock"
-	outputHost            = "ammHost"
-	outputUsername        = "ammUsername"
-	outputUserPassword    = "ammUserPassword"
-	outputUserPrivateKey  = "ammUserPrivatekey"
-	outputDedicatedHostID = "ammDedicatedHostID"
-	outputDedicatedHostAZ = "ammDedicatedHostAZ"
-	outputRegion          = "ammRegion"
+	outputLock              = "ammLock"
+	outputHost              = "ammHost"
+	outputUsername          = "ammUsername"
+	outputUserPassword      = "ammUserPassword"
+	outputMachinePrivateKey = "ammMachinePrivatekey"
+	outputUserPrivateKey    = "ammUserPrivatekey"
+	outputDedicatedHostID   = "ammDedicatedHostID"
+	outputDedicatedHostAZ   = "ammDedicatedHostAZ"
+	outputRegion            = "ammRegion"
 	// outputAdminUsername     = "ammAdminUsername"
 	// outputAdminUserPassword = "ammAdminUserPassword"
 
@@ -44,8 +45,8 @@ var awsArchIDbyArch = map[string]string{
 	"m1":  "arm64_mac",
 	"m2":  "arm64_mac"}
 
-var macAMIs = map[string]string{
-	"arm64_mac-13":  "macos-arm64-13.6.1",
-	"arm64_mac-14":  "macos-arm64-14.1",
-	"x86_64_mac-12": "mac12_x86",
-	"x86_64_mac-13": "mac13_x86"}
+// var macAMIs = map[string]string{
+// 	"arm64_mac-13":  "macos-arm64-13.6.1",
+// 	"arm64_mac-14":  "macos-arm64-14.1",
+// 	"x86_64_mac-12": "mac12_x86",
+// 	"x86_64_mac-13": "mac13_x86"}

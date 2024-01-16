@@ -1,9 +1,9 @@
 package context
 
 import (
-	"crypto/rand"
 	"fmt"
 
+	"github.com/adrianriobo/qenvs/pkg/util"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 	utilMaps "github.com/adrianriobo/qenvs/pkg/util/maps"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
@@ -31,13 +31,13 @@ var c context
 func Init(instanceID, backedURL, resultsOutput string, tags map[string]string) {
 	c = context{
 		instanceID:    instanceID,
-		id:            randomID(originTagValue),
+		id:            util.RandomID(originTagValue),
 		backedURL:     backedURL,
 		resultsOutput: resultsOutput,
 		tags:          tags,
 	}
 	addCommonTags()
-	logging.Debugf("Context initialized for %s", c.id)
+	logging.Debugf("context initialized for %s", c.id)
 }
 
 func InitBase(instanceID, backedURL string) {
@@ -95,10 +95,4 @@ func GetStackInstanceName(stackName string) string {
 func addCommonTags() {
 	c.tags[originTagName] = originTagValue
 	c.tags[instaceTagName] = c.instanceID
-}
-
-func randomID(name string) string {
-	b := make([]byte, 4)
-	_, _ = rand.Read(b)
-	return fmt.Sprintf("%s%x", name, b)
 }

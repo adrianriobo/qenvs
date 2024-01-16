@@ -1,6 +1,8 @@
 package util
 
 import (
+	cRand "crypto/rand"
+	"fmt"
 	"math/rand"
 	"strings"
 )
@@ -82,4 +84,10 @@ func Random(max, min int) int {
 
 func RandomItemFromArray[X any](source []X) X {
 	return source[Random(len(source)-1, 0)]
+}
+
+func RandomID(name string) string {
+	b := make([]byte, 4)
+	_, _ = cRand.Read(b)
+	return fmt.Sprintf("%s%x", name, b)
 }

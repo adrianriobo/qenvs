@@ -17,6 +17,9 @@ type HostInformation struct {
 	Host      *ec2Types.Host
 }
 
+// will get the dedicated hosts based on the tags
+// func getHosts(arch string)
+
 // TODO only handle 1 machine for the time being
 func getMatchingHostsInformation(arch string) (*HostInformation, error) {
 	matchingTags := qenvsContext.GetTags()
@@ -77,11 +80,11 @@ func getAZ(r *MacRequest) (az *string, err error) {
 	isOffered := false
 	var excludedAZs []string
 	for !isOffered {
-		az, err = data.GetRandomAvailabilityZone(r.Region, excludedAZs)
+		az, err = data.GetRandomAvailabilityZone(*r.Region, excludedAZs)
 		if err != nil {
 			return nil, err
 		}
-		isOffered, err = data.IsInstanceTypeOfferedByAZ(r.Region, macTypesByArch[r.Architecture], *az)
+		isOffered, err = data.IsInstanceTypeOfferedByAZ(*r.Region, macTypesByArch[r.Architecture], *az)
 		if err != nil {
 			return nil, err
 		}

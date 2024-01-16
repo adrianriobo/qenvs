@@ -4,82 +4,79 @@ import (
 	_ "embed"
 
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
-	"github.com/adrianriobo/qenvs/pkg/provider/aws/modules/network"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 
 	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
 )
 
-type MacRequest struct {
-	Prefix           string
-	Architecture     string
-	Version          string
-	FixedLocation    bool
-	Region           string
-	AvailabilityZone string
-	Airgap           bool
-	// For airgap scenario there is an orchestation of
-	// a phase with connectivity on the machine (allowing bootstraping)
-	// a pahase with connectivyt off where the subnet for the target lost the nat gateway
-	airgapPhaseConnectivity network.Connectivity
+// Create function will create the dedicated host
+// it will add several tags to it
+//
+// * backedURL will be used to create the mac machine stack
+// * arch will be used to match new requests for specific arch
+// * origin fixed qenvs value
+// * instaceTagName id for the qenvs execution
+// * (customs) any tag passed as --tags param on the create operation
+//
+// It will also create a mac machine based on the arch and version setup
+// and will set a lock on it
 
-	// If replace flag is true we will handle create / destroy as replace root volume
-	Replace bool
-	Lock    bool
-
-	// We will create a dh or pick one which will be used to install / replace a mac machine
-	dedicatedHost *ec2Types.Host
-}
-
-// Create will create a dedicated host and add all tags
-// also create the mac machine
 func Create(r *MacRequest) (err error) {
-	// Check if instance type is available on current location
-	// region is only needed for dedicated host mac machine got the region from the az
-	// of the dedicated host or the request if it creates both at once
-	region, err := getRegion(r)
+	// Create the dedicated host
+	// Region for the dedicated host (must offer the instance type)
+	r.Region, err = getRegion(r)
 	if err != nil {
 		return err
 	}
-	r.Region = *region
-	az, err := getAZ(r)
+	// Az on the Region to create the dedicated host (must offer the instance type)
+	r.AvailabilityZone, err = getAZ(r)
 	if err != nil {
 		return err
 	}
-	r.AvailabilityZone = *az
-	// No host id means need to create dedicated host
 	dh, err := r.createDedicatedHost()
 	if err != nil {
 		return err
 	}
-	// if not only host the mac machine will be created
+	// Setup the topology and install the mac machine
 	if !r.Airgap {
-		return r.createMacMachine(dh)
+		return r.createMacMachine(*dh)
 	}
-	// Airgap scneario requires orchestration
-	return r.createAirgapMacMachine(dh)
+	return r.createAirgapMacMachine(*dh)
 }
 
-// This function will check if mac machine exists based on labeling
-// If it will exists It will check if it is locked (where should we add the lock?)
-// If lock free we will use replace root volume and set the lock
-
-// TODO think how this would afferct airgap / proxy mechanism
+// Request could be interpreted as a general way to create / release
+//
+// Some project will request a mac machine
+// based on tags it will check if there is any existing mac machine (based on labels + arch + MaxPoolSize)
+//
+// if dh machine exists and max pool size has been reached:
+//
+// if it exists it will check if it is locked
+// if no locked it will replace based on version TODO think how this would afferct airgap / proxy mechanism
+// it locked it will (wait or return an error)
+//
+// if dh does not exist or max pool size has not been reched
+// create the machine
+//
+//	...
 func Request(r *MacRequest) error {
 	hostInformation, err := getMatchingHostsInformation(r.Architecture)
 	if err != nil {
 		return err
 	}
-	return replaceMachine(r.Prefix, *hostInformation)
+	return r.replaceMachine(*hostInformation)
 }
 
+// TODO review how to handle params
 // This will release the lock on the machine allowing new request to get the machine
+// Currently release will use data to check AMI...as so do not change it
+// we are passing those params from cmd
 func Release(r *MacRequest) error {
 	hostInformation, err := getMatchingHostsInformation(r.Architecture)
 	if err != nil {
 		return err
 	}
-	return r.releaseLocked(hostInformation)
+	return r.releaseLocked(*hostInformation)
 }
 
 // Initial scenario consider 1 machine

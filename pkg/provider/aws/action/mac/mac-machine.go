@@ -34,9 +34,11 @@ import (
 //go:embed bootstrap.sh
 var BootstrapScript []byte
 
+// Need to extend this to also pass the key to be set up on each / create or replace
 type userDataValues struct {
-	Username string
-	Password string
+	Username      string
+	Password      string
+	AuthorizedKey string
 }
 
 type locked struct {
@@ -66,55 +68,79 @@ func isMachineLocked(prefix string, h HostInformation) (bool, error) {
 // This function will use the information from the
 // dedicated host holding the mac machine will check if stack exists
 // if exists will get the lock value from it
-func replaceMachine(prefix string, h HostInformation) error {
-	machineLocked, err := isMachineLocked(prefix, h)
+func (r *MacRequest) replaceMachine(h HostInformation) error {
+	// machineLocked, err := isMachineLocked(r.Prefix, h)
+	// if err != nil {
+	// 	return err
+	// }
+	// if machineLocked {
+	// 	return fmt.Errorf("can not replace machine is currently locked")
+	// }
+	// r.lock = true
+	// if err := r.manageMacMachine(h); err != nil {
+	// 	return err
+	// }
+	instances, err := data.GetInstanceByRegion(data.InstanceResquest{
+		Tags: qenvsContext.GetTags(),
+	}, *h.Region)
 	if err != nil {
 		return err
 	}
-	if !machineLocked {
-		instances, err := data.GetInstanceByRegion(data.InstanceResquest{
-			Tags: qenvsContext.GetTags(),
-		}, *h.Region)
-		if err != nil {
-			return err
-		}
-		logging.Debugf("%v", instances)
-		// TODO need to change the AMI ID to pick it based on labes? + copy across regions
-		t, err := qEC2.ReplaceRootVolume(
-			qEC2.ReplaceRootVolumeRequest{
-				Region:     *h.Region,
-				InstanceID: *instances[0].InstanceId,
-				AMIID:      "ami-04aaa6dc45616cb76",
-			})
-		if err != nil {
-			return err
-		}
-		logging.Debugf("%v", t)
+	// logging.Debugf("%v", instances)
+	// TODO need to change the AMI ID to pick it based on labes? + copy across regions
+	// AMI 14 ami-04aaa6dc45616cb76
+	// AMI 13
+	amiID := "ami-05ec124eba52f7339"
+	logging.Debugf("Replacing root volume for AMI %s", amiID)
+	_, err = qEC2.ReplaceRootVolume(
+		qEC2.ReplaceRootVolumeRequest{
+			Region:     *h.Region,
+			InstanceID: *instances[0].InstanceId,
+			// Needto lookup for AMI + check if copy is required
+			AMIID: amiID,
+		})
+	if err != nil {
+		return err
 	}
-	return nil
+	// logging.Debugf("%v", t)
+	// Moved here to avoid side effect on name for upk
+	r.replace = true
+	r.lock = true
+	// replace will need to run the bootstrap to setup new key for user
+	// + readiness function
+	return r.manageMacMachine(h)
 }
 
 // Release will set the lock as false
-func (r *MacRequest) releaseLocked(h *HostInformation) error {
-	// Check the stack
-	r.Lock = false
-	sr, _ := manager.UpStack(manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
-		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   *h.BackedURL,
-		ProviderCredentials: aws.GetClouProviderCredentials(
-			map[string]string{
-				aws.CONFIG_AWS_REGION: *h.Region}),
-		DeployFunc: r.deployerMachine,
-	})
-	return r.manageResultsMachine(sr)
+func (r *MacRequest) releaseLocked(h HostInformation) error {
+	r.lock = false
+	lockURN := fmt.Sprintf("urn:pulumi:%s::%s::%s::%s",
+		qenvsContext.GetStackInstanceName(stackMacMachine),
+		qenvsContext.GetInstanceName(),
+		urnLock,
+		resourcesUtil.GetResourceName(
+			r.Prefix, awsMacMachineID, "mac-lock"))
+
+	// rh:qe:aws:mac:lock main-amm-mac-lock
+	return r.manageMacMachineTargets(h, []string{lockURN})
+}
+
+// Release will set the lock as false
+func (r *MacRequest) createMacMachine(h HostInformation) error {
+	r.lock = true
+	return r.manageMacMachine(h)
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createMacMachine(h *HostInformation) error {
-	r.AvailabilityZone = *h.Host.AvailabilityZone
+func (r *MacRequest) manageMacMachine(h HostInformation) error {
+	return r.manageMacMachineTargets(h, nil)
+}
+
+// this creates the stack for the mac machine
+func (r *MacRequest) manageMacMachineTargets(h HostInformation, targetURNs []string) error {
+	r.AvailabilityZone = h.Host.AvailabilityZone
 	r.dedicatedHost = h.Host
-	r.Lock = true
+	r.Region = h.Region
 	cs := manager.Stack{
 		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
 		ProjectName: qenvsContext.GetInstanceName(),
@@ -124,12 +150,17 @@ func (r *MacRequest) createMacMachine(h *HostInformation) error {
 				aws.CONFIG_AWS_REGION: *h.Region}),
 		DeployFunc: r.deployerMachine,
 	}
-	sr, _ := manager.UpStack(cs)
+	var sr auto.UpResult
+	if len(targetURNs) > 0 {
+		sr, _ = manager.UpStackTargets(cs, targetURNs)
+	} else {
+		sr, _ = manager.UpStack(cs)
+	}
 	return r.manageResultsMachine(sr)
 }
 
 // this creates the stack for the mac machine
-func (r *MacRequest) createAirgapMacMachine(h *HostInformation) error {
+func (r *MacRequest) createAirgapMacMachine(h HostInformation) error {
 	r.airgapPhaseConnectivity = network.ON
 	err := r.createMacMachine(h)
 	if err != nil {
@@ -142,7 +173,7 @@ func (r *MacRequest) createAirgapMacMachine(h *HostInformation) error {
 // Main function to deploy all requried resources to azure
 func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 	// Export the region for delete
-	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(r.Region))
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(*r.Region))
 	// Lookup AMI
 	ami, err := ami.GetAMIByName(ctx,
 		fmt.Sprintf(amiRegex, r.Version),
@@ -155,8 +186,8 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 	nr := network.NetworkRequest{
 		Prefix:                  r.Prefix,
 		ID:                      awsMacMachineID,
-		Region:                  r.Region,
-		AZ:                      r.AvailabilityZone,
+		Region:                  *r.Region,
+		AZ:                      *r.AvailabilityZone,
 		Airgap:                  r.Airgap,
 		AirgapPhaseConnectivity: r.airgapPhaseConnectivity,
 	}
@@ -167,12 +198,12 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 	// Create Keypair
 	kpr := keypair.KeyPairRequest{
 		Name: resourcesUtil.GetResourceName(
-			r.Prefix, awsMacMachineID, "pk")}
+			r.Prefix, awsMacMachineID, "pk-machine")}
 	keyResources, err := kpr.Create(ctx)
 	if err != nil {
 		return err
 	}
-	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputUserPrivateKey),
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputMachinePrivateKey),
 		keyResources.PrivateKey.PrivateKeyPem)
 	// Security groups
 	securityGroups, err := r.securityGroups(ctx, vpc)
@@ -199,37 +230,32 @@ func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
 		bSDependecies = append(bSDependecies,
 			[]pulumi.Resource{bastion.Instance, targetRouteTableAssociation}...)
 	}
-	bc, userPassword, err := r.bootstrapscript(
+	bc, userPassword, ukp, err := r.bootstrapscript(
 		ctx, i, keyResources.PrivateKey, bastion, bSDependecies)
 	if err != nil {
 		return err
 	}
 	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputUserPassword), userPassword.Result)
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputUserPrivateKey),
+		ukp.PrivateKey.PrivateKeyPem)
 	// Create a lock on the machine
 	if err := newMachineLock(ctx,
 		resourcesUtil.GetResourceName(
-			r.Prefix, awsMacMachineID, "mac-lock"), r.Lock); err != nil {
+			r.Prefix, awsMacMachineID, "mac-lock"), r.lock); err != nil {
 		return err
 	}
-	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputLock), pulumi.Bool(r.Lock))
-	// Check if replace is needed
-	if r.Replace {
-		// use the replace
-		archID := awsArchIDbyArch[r.Architecture]
-		macAMIKey := fmt.Sprintf("%s-%s", archID, r.Version)
-		macAMIID := macAMIs[macAMIKey]
-		logging.Debugf("%s", macAMIID)
-	}
-	return r.readiness(ctx, i, keyResources.PrivateKey, bastion, []pulumi.Resource{bc})
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputLock), pulumi.Bool(r.lock))
+	return r.readiness(ctx, i, ukp.PrivateKey, bastion, []pulumi.Resource{bc})
 }
 
 // Write exported values in context to files o a selected target folder
 func (r *MacRequest) manageResultsMachine(stackResult auto.UpResult) error {
 	results := map[string]string{
-		fmt.Sprintf("%s-%s", r.Prefix, outputUsername):       "username",
-		fmt.Sprintf("%s-%s", r.Prefix, outputUserPassword):   "userpassword",
-		fmt.Sprintf("%s-%s", r.Prefix, outputUserPrivateKey): "id_rsa",
-		fmt.Sprintf("%s-%s", r.Prefix, outputHost):           "host",
+		fmt.Sprintf("%s-%s", r.Prefix, outputUsername):          "username",
+		fmt.Sprintf("%s-%s", r.Prefix, outputUserPassword):      "userpassword",
+		fmt.Sprintf("%s-%s", r.Prefix, outputUserPrivateKey):    "id_rsa",
+		fmt.Sprintf("%s-%s", r.Prefix, outputHost):              "host",
+		fmt.Sprintf("%s-%s", r.Prefix, outputMachinePrivateKey): "machine_id_rsa",
 	}
 	if r.Airgap {
 		err := bastion.WriteOutputs(stackResult, r.Prefix, qenvsContext.GetResultsOutputPath())
@@ -298,7 +324,10 @@ func (r *MacRequest) instance(ctx *pulumi.Context,
 	}
 	return ec2.NewInstance(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "instance"),
-		&instanceArgs)
+		&instanceArgs,
+		// All changes on the instance should be done through root volume replace
+		// as so we ignore Amis missmatch
+		pulumi.IgnoreChanges([]string{"ami"}))
 }
 
 func (r *MacRequest) bootstrapscript(ctx *pulumi.Context,
@@ -308,11 +337,12 @@ func (r *MacRequest) bootstrapscript(ctx *pulumi.Context,
 	dependecies []pulumi.Resource) (
 	*remote.Command,
 	*random.RandomPassword,
+	*keypair.KeyPairResources,
 	error) {
 	// Bootstrap script
-	remoteCommand, userPassword, err := r.getBootstrapScript(ctx)
+	remoteCommand, userPassword, ukp, err := r.getBootstrapScript(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	rc, err := remote.NewCommand(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "bootstrap-cmd"),
@@ -325,7 +355,7 @@ func (r *MacRequest) bootstrapscript(ctx *pulumi.Context,
 				Create: remoteTimeout,
 				Update: remoteTimeout}),
 		pulumi.DependsOn(dependecies))
-	return rc, userPassword, err
+	return rc, userPassword, ukp, err
 }
 
 // fuction will return the bootstrap script which will be execute on the mac machine
@@ -333,23 +363,39 @@ func (r *MacRequest) bootstrapscript(ctx *pulumi.Context,
 func (r *MacRequest) getBootstrapScript(ctx *pulumi.Context) (
 	pulumi.StringPtrInput,
 	*random.RandomPassword,
+	*keypair.KeyPairResources,
 	error) {
 	password, err := security.CreatePassword(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "passwd"))
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
-
-	postscript := password.Result.ApplyT(func(password string) (string, error) {
-		return file.Template(
-			userDataValues{
-				defaultUsername,
-				password},
-			resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "mac-bootstrap"),
-			string(BootstrapScript[:]))
-
-	}).(pulumi.StringOutput)
-	return postscript, password, nil
+	// Create Keypair for the user
+	// If replace is enabled we need to re create the pk-user
+	name := resourcesUtil.GetResourceName(
+		r.Prefix, awsMacMachineID, "pk-user5be3717a")
+	if r.replace {
+		name = util.RandomID(name)
+	}
+	kpr := keypair.KeyPairRequest{
+		Name: name}
+	kp, err := kpr.Create(ctx)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	postscript := pulumi.All(password.Result, kp.PrivateKey.PublicKeyOpenssh).ApplyT(
+		func(args []interface{}) (string, error) {
+			password := args[0].(string)
+			authorizedKey := args[1].(string)
+			return file.Template(
+				userDataValues{
+					defaultUsername,
+					password,
+					authorizedKey},
+				resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "mac-bootstrap"),
+				string(BootstrapScript[:]))
+		}).(pulumi.StringOutput)
+	return postscript, password, kp, nil
 }
 
 func (r *MacRequest) readiness(ctx *pulumi.Context,
@@ -400,11 +446,12 @@ func remoteCommandArgs(
 
 // This will create mark to see if machine is lock or free
 func newMachineLock(ctx *pulumi.Context, name string, lockedValue bool, opts ...pulumi.ResourceOption) error {
+	l := &locked{
+		Lock: lockedValue,
+	}
 	return ctx.RegisterComponentResource(
 		urnLock,
 		name,
-		&locked{
-			Lock: lockedValue,
-		},
+		l,
 		opts...)
 }
