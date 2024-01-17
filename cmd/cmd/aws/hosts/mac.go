@@ -18,6 +18,8 @@ const (
 	releaseCmd     = "release"
 	releaseCmdDesc = "release mac machine"
 
+	dhID              string = "dedicated-host-id"
+	dhIDDesc          string = "id for the dedicated host"
 	arch              string = "arch"
 	archDesc          string = "mac architecture allowed values x86, m1, m2"
 	archDefault       string = "m2"
@@ -123,6 +125,7 @@ func getMacRequest() *cobra.Command {
 	return c
 }
 
+// Required dedicatedHostID as mandatory
 func getMacRelease() *cobra.Command {
 	c := &cobra.Command{
 		Use:   releaseCmd,
@@ -145,7 +148,8 @@ func getMacRelease() *cobra.Command {
 					Prefix:       "main",
 					Architecture: viper.GetString(arch),
 					Version:      viper.GetString(osVersion),
-				}); err != nil {
+				},
+				viper.GetString(dhID)); err != nil {
 				logging.Error(err)
 			}
 			return nil
@@ -155,6 +159,7 @@ func getMacRelease() *cobra.Command {
 	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	flagSet.StringP(arch, "", archDefault, archDesc)
 	flagSet.StringP(osVersion, "", osDefault, osVersionDesc)
+	flagSet.StringP(dhID, "", "", dhIDDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
 	return c
 }
@@ -168,20 +173,25 @@ func getMacDestroy() *cobra.Command {
 				return err
 			}
 
-			qenvsContext.InitBase(
+			qenvsContext.Init(
 				viper.GetString(params.ProjectName),
-				viper.GetString(params.BackedURL))
+				viper.GetString(params.BackedURL),
+				"",
+				viper.GetStringMapString(params.Tags))
 
 			if err := mac.Destroy(
 				"main",
-				viper.GetString(arch)); err != nil {
+				viper.GetString(arch),
+				viper.GetString(dhID)); err != nil {
 				logging.Error(err)
 			}
 			return nil
 		},
 	}
 	flagSet := pflag.NewFlagSet(params.DestroyCmdName, pflag.ExitOnError)
+	flagSet.StringP(dhID, "", "", dhIDDesc)
 	flagSet.StringP(arch, "", archDefault, archDesc)
+	flagSet.StringToStringP(params.Tags, "", nil, params.TagsDesc)
 	c.PersistentFlags().AddFlagSet(flagSet)
 	return c
 }

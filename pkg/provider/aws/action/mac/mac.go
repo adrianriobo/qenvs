@@ -2,8 +2,10 @@ package mac
 
 import (
 	_ "embed"
+	"fmt"
 
 	"github.com/adrianriobo/qenvs/pkg/provider/aws"
+	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
 	"github.com/adrianriobo/qenvs/pkg/util/logging"
 
 	ec2Types "github.com/aws/aws-sdk-go-v2/service/ec2/types"
@@ -22,20 +24,20 @@ import (
 // and will set a lock on it
 
 func Create(r *MacRequest) (err error) {
-	// Create the dedicated host
-	// Region for the dedicated host (must offer the instance type)
-	r.Region, err = getRegion(r)
+	var dh *HostInformation
+	adh, err := getMatchingAvailableHostsInformation(r.Architecture)
 	if err != nil {
 		return err
 	}
-	// Az on the Region to create the dedicated host (must offer the instance type)
-	r.AvailabilityZone, err = getAZ(r)
-	if err != nil {
-		return err
-	}
-	dh, err := r.createDedicatedHost()
-	if err != nil {
-		return err
+	// if no available dh create it
+	// otherwise pick the first (newest allocated)
+	if len(adh) == 0 {
+		dh, err = r.createDedicatedHost()
+		if err != nil {
+			return err
+		}
+	} else {
+		dh = &adh[0]
 	}
 	// Setup the topology and install the mac machine
 	if !r.Airgap {
@@ -60,43 +62,51 @@ func Create(r *MacRequest) (err error) {
 //
 //	...
 func Request(r *MacRequest) error {
-	hostInformation, err := getMatchingHostsInformation(r.Architecture)
+	hostsInformation, err := getMatchingHostsInformation(r.Architecture)
 	if err != nil {
 		return err
 	}
-	return r.replaceMachine(*hostInformation)
+	if len(hostsInformation) == 0 {
+		return fmt.Errorf("no dedicated host")
+	}
+	return r.replaceMachine(hostsInformation[0])
 }
 
-// TODO review how to handle params
-// This will release the lock on the machine allowing new request to get the machine
-// Currently release will use data to check AMI...as so do not change it
-// we are passing those params from cmd
-func Release(r *MacRequest) error {
-	hostInformation, err := getMatchingHostsInformation(r.Architecture)
+// Release will use dedicated host ID as identifier
+//
+// It will get the info for the dedicated host
+// get backedURL (tag on the dh)
+// get projectName (tag on the dh)
+// load machine stack based on those params
+// run release update on it
+func Release(r *MacRequest, hostID string) error {
+	host, err := data.GetDedicatedHost(hostID)
 	if err != nil {
 		return err
 	}
-	return r.releaseLocked(*hostInformation)
+	return r.releaseLock(getHostInformation(*host))
 }
 
 // Initial scenario consider 1 machine
 // If we request destroy mac machine it will look for any machine
 // and check if it is locked if not locked it will destroy it
-func Destroy(prefix, arch string) error {
-	hostInformation, err := getMatchingHostsInformation(arch)
+func Destroy(prefix, arch, hostID string) error {
+	host, err := data.GetDedicatedHost(hostID)
 	if err != nil {
 		return err
 	}
+	hostInformation := getHostInformation(*host)
 	if hostInformation.Host.State == ec2Types.AllocationStateAvailable {
 		return aws.DestroyStack(aws.DestroyStackRequest{
 			Stackname: stackDedicatedHost,
+			// TODO check if needed to add region for backedURL
 			Region:    *hostInformation.Region,
 			BackedURL: *hostInformation.BackedURL,
 		})
 	}
 	// Dedicated host is not on a valid state to be deleted
 	// With same backedURL check if machine is locked
-	machineLocked, err := isMachineLocked(prefix, *hostInformation)
+	machineLocked, err := isMachineLocked(prefix, hostInformation)
 	if err != nil {
 		return err
 	}

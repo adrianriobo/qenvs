@@ -15,13 +15,31 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 )
 
+// Idea move away from multi file creation a set outputs as an unified yaml file
+// type macdh struct {
+// 	ID          string `yaml:"id"`
+// 	AZ          string `yaml:"az"`
+// 	BackedURL   string `yaml:"backedurl"`
+// 	ProjectName string `yaml:"projectname"`
+// }
+
 // this creates the stack for the dedicated host
-func (r *MacRequest) createDedicatedHost() (*HostInformation, error) {
-	logging.Debugf("creating dedicated host for mac machine %s", r.Architecture)
-	backedURL := fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), qenvsContext.GetID())
+func (r *MacRequest) createDedicatedHost() (dhi *HostInformation, err error) {
+	// Get data required for create a dh
+	backedURL := getBackedURL()
+	r.Region, err = getRegion(r)
+	if err != nil {
+		return nil, err
+	}
+	r.AvailabilityZone, err = getAZ(r)
+	if err != nil {
+		return nil, err
+	}
+	logging.Debugf("creating a mac %s dedicated host state will be stored at %s",
+		r.Architecture, backedURL)
 	cs := manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(stackDedicatedHost),
-		ProjectName: qenvsContext.GetInstanceName(),
+		StackName:   qenvsContext.StackNameByProject(stackDedicatedHost),
+		ProjectName: qenvsContext.ProjectName(),
 		BackedURL:   backedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
@@ -33,20 +51,19 @@ func (r *MacRequest) createDedicatedHost() (*HostInformation, error) {
 	if err != nil {
 		return nil, err
 	}
-	logging.Debugf("dedicated host with host id %s has been created successfully", *dhID)
+	logging.Debugf("mac dedicated host with host id %s has been created successfully", *dhID)
 	host, err := data.GetDedicatedHost(*dhID)
 	if err != nil {
 		return nil, err
 	}
-	return &HostInformation{
-		BackedURL: &backedURL,
-		Region:    r.Region,
-		Host:      host,
-	}, nil
+	i := getHostInformation(*host)
+	dhi = &i
+	return
 }
 
 // this function will create the dedicated host resource
 func (r *MacRequest) deployerDedicatedHost(ctx *pulumi.Context) (err error) {
+	backedURL := getBackedURL()
 	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(*r.Region))
 	dh, err := ec2.NewDedicatedHost(ctx,
 		resourcesUtil.GetResourceName(r.Prefix, awsMacMachineID, "dh"),
@@ -56,7 +73,7 @@ func (r *MacRequest) deployerDedicatedHost(ctx *pulumi.Context) (err error) {
 			InstanceType:     pulumi.String(macTypesByArch[r.Architecture]),
 			Tags: qenvsContext.ResourceTagsWithCustom(
 				map[string]string{
-					backedURLTagName: fmt.Sprintf("%s/%s", qenvsContext.GetBackedURL(), qenvsContext.GetID()),
+					backedURLTagName: backedURL,
 					archTagName:      r.Architecture,
 				}),
 		})

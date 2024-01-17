@@ -20,6 +20,9 @@ const (
 	// outputAdminUsername     = "ammAdminUsername"
 	// outputAdminUserPassword = "ammAdminUserPassword"
 
+	// outputDHBackedURL   = "ammDHBackedURL"
+	// outputDHProjectName = "ammDHProjectName"
+
 	amiRegex = "amzn-ec2-macos-%s*"
 	amiOwner = "628277914472"
 
@@ -31,8 +34,8 @@ const (
 	// https://www.pulumi.com/docs/intro/concepts/resources/options/customtimeouts/
 	remoteTimeout string = "40m"
 
-	backedURLTagName string = "BackedURL"
-	archTagName      string = "Arch"
+	backedURLTagName string = "backedURL"
+	archTagName      string = "arch"
 )
 
 var macTypesByArch = map[string]string{

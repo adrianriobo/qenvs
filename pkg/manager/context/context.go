@@ -11,15 +11,15 @@ import (
 )
 
 const (
-	originTagName  = "origin"
-	originTagValue = "qenvs"
-	instaceTagName = "instanceID"
+	OriginTagName      = "origin"
+	originTagValue     = "qenvs"
+	ProjectNameTagName = "projectName"
 )
 
 // store details for the current execution
 type context struct {
 	id                    string
-	instanceID            string
+	projectName           string
 	backedURL             string
 	resultsOutput         string
 	tags                  map[string]string
@@ -28,9 +28,9 @@ type context struct {
 
 var c context
 
-func Init(instanceID, backedURL, resultsOutput string, tags map[string]string) {
+func Init(projectName, backedURL, resultsOutput string, tags map[string]string) {
 	c = context{
-		instanceID:    instanceID,
+		projectName:   projectName,
 		id:            util.RandomID(originTagValue),
 		backedURL:     backedURL,
 		resultsOutput: resultsOutput,
@@ -40,10 +40,10 @@ func Init(instanceID, backedURL, resultsOutput string, tags map[string]string) {
 	logging.Debugf("context initialized for %s", c.id)
 }
 
-func InitBase(instanceID, backedURL string) {
+func InitBase(projectName, backedURL string) {
 	c = context{
-		instanceID: instanceID,
-		backedURL:  backedURL,
+		projectName: projectName,
+		backedURL:   backedURL,
 	}
 }
 
@@ -72,15 +72,15 @@ func ResourceTagsWithCustom(customTags map[string]string) pulumi.StringMap {
 	return c.tagsAsPulumiStringMap
 }
 
-func GetID() string {
+func ID() string {
 	return c.id
 }
 
-func GetInstanceName() string {
-	return c.instanceID
+func ProjectName() string {
+	return c.projectName
 }
 
-func GetBackedURL() string {
+func BackedURL() string {
 	return c.backedURL
 }
 
@@ -88,11 +88,11 @@ func GetResultsOutputPath() string {
 	return c.resultsOutput
 }
 
-func GetStackInstanceName(stackName string) string {
-	return fmt.Sprintf("%s-%s", stackName, c.instanceID)
+func StackNameByProject(stackName string) string {
+	return fmt.Sprintf("%s-%s", stackName, c.projectName)
 }
 
 func addCommonTags() {
-	c.tags[originTagName] = originTagValue
-	c.tags[instaceTagName] = c.instanceID
+	c.tags[OriginTagName] = originTagValue
+	c.tags[ProjectNameTagName] = c.projectName
 }

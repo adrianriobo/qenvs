@@ -66,17 +66,16 @@ func DestroyStack(s DestroyStackRequest) error {
 		return fmt.Errorf("stackname is required")
 	}
 	return manager.DestroyStack(manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(s.Stackname),
-		ProjectName: qenvsContext.GetInstanceName(),
+		StackName:   qenvsContext.StackNameByProject(s.Stackname),
+		ProjectName: qenvsContext.ProjectName(),
 		BackedURL: util.If(len(s.BackedURL) > 0,
 			s.BackedURL,
-			qenvsContext.GetBackedURL()),
+			qenvsContext.BackedURL()),
 		ProviderCredentials: GetClouProviderCredentials(
 			map[string]string{
 				CONFIG_AWS_REGION: util.If(len(s.Region) > 0,
 					s.Region,
 					os.Getenv("AWS_DEFAULT_REGION"))})})
-
 }
 
 // Create a list of filters for tags based on the tags added by qenvs

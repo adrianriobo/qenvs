@@ -48,8 +48,8 @@ type locked struct {
 
 func isMachineLocked(prefix string, h HostInformation) (bool, error) {
 	s, err := manager.CheckStack(manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
-		ProjectName: qenvsContext.GetInstanceName(),
+		StackName:   qenvsContext.StackNameByProject(stackMacMachine),
+		ProjectName: qenvsContext.ProjectName(),
 		BackedURL:   *h.BackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
@@ -91,6 +91,7 @@ func (r *MacRequest) replaceMachine(h HostInformation) error {
 	// AMI 14 ami-04aaa6dc45616cb76
 	// AMI 13
 	amiID := "ami-05ec124eba52f7339"
+
 	logging.Debugf("Replacing root volume for AMI %s", amiID)
 	_, err = qEC2.ReplaceRootVolume(
 		qEC2.ReplaceRootVolumeRequest{
@@ -112,11 +113,11 @@ func (r *MacRequest) replaceMachine(h HostInformation) error {
 }
 
 // Release will set the lock as false
-func (r *MacRequest) releaseLocked(h HostInformation) error {
+func (r *MacRequest) releaseLock(h HostInformation) error {
 	r.lock = false
 	lockURN := fmt.Sprintf("urn:pulumi:%s::%s::%s::%s",
-		qenvsContext.GetStackInstanceName(stackMacMachine),
-		qenvsContext.GetInstanceName(),
+		qenvsContext.StackNameByProject(stackMacMachine),
+		qenvsContext.ProjectName(),
 		urnLock,
 		resourcesUtil.GetResourceName(
 			r.Prefix, awsMacMachineID, "mac-lock"))
@@ -142,8 +143,9 @@ func (r *MacRequest) manageMacMachineTargets(h HostInformation, targetURNs []str
 	r.dedicatedHost = h.Host
 	r.Region = h.Region
 	cs := manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(stackMacMachine),
-		ProjectName: qenvsContext.GetInstanceName(),
+		StackName: fmt.Sprintf("%s-%s",
+			stackMacMachine, *h.ProjectName),
+		ProjectName: *h.ProjectName,
 		BackedURL:   *h.BackedURL,
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
@@ -172,8 +174,9 @@ func (r *MacRequest) createAirgapMacMachine(h HostInformation) error {
 
 // Main function to deploy all requried resources to azure
 func (r *MacRequest) deployerMachine(ctx *pulumi.Context) error {
-	// Export the region for delete
+	// Export information
 	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputRegion), pulumi.String(*r.Region))
+	ctx.Export(fmt.Sprintf("%s-%s", r.Prefix, outputDedicatedHostID), pulumi.String(*r.dedicatedHost.HostId))
 	// Lookup AMI
 	ami, err := ami.GetAMIByName(ctx,
 		fmt.Sprintf(amiRegex, r.Version),
@@ -256,6 +259,7 @@ func (r *MacRequest) manageResultsMachine(stackResult auto.UpResult) error {
 		fmt.Sprintf("%s-%s", r.Prefix, outputUserPrivateKey):    "id_rsa",
 		fmt.Sprintf("%s-%s", r.Prefix, outputHost):              "host",
 		fmt.Sprintf("%s-%s", r.Prefix, outputMachinePrivateKey): "machine_id_rsa",
+		fmt.Sprintf("%s-%s", r.Prefix, outputDedicatedHostID):   "dedicated_host_id",
 	}
 	if r.Airgap {
 		err := bastion.WriteOutputs(stackResult, r.Prefix, qenvsContext.GetResultsOutputPath())

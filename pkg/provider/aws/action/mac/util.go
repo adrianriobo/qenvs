@@ -3,6 +3,7 @@ package mac
 import (
 	"fmt"
 	"os"
+	"strings"
 
 	qenvsContext "github.com/adrianriobo/qenvs/pkg/manager/context"
 	"github.com/adrianriobo/qenvs/pkg/provider/aws/data"
@@ -12,16 +13,57 @@ import (
 )
 
 type HostInformation struct {
-	BackedURL *string
-	Region    *string
-	Host      *ec2Types.Host
+	BackedURL   *string
+	ProjectName *string
+	Region      *string
+	Host        *ec2Types.Host
 }
 
-// will get the dedicated hosts based on the tags
-// func getHosts(arch string)
+// Compose information around dedicated host
+func getHostInformation(h ec2Types.Host) HostInformation {
+	bi := slices.IndexFunc(
+		h.Tags,
+		func(t ec2Types.Tag) bool {
+			return *t.Key == backedURLTagName
+		})
+	pi := slices.IndexFunc(
+		h.Tags,
+		func(t ec2Types.Tag) bool {
+			return *t.Key == qenvsContext.ProjectNameTagName
+		})
+	az := *h.AvailabilityZone
+	region := az[:len(az)-1]
+	return HostInformation{
+		BackedURL:   h.Tags[bi].Value,
+		ProjectName: h.Tags[pi].Value,
+		Region:      &region,
+		Host:        &h,
+	}
+}
 
-// TODO only handle 1 machine for the time being
-func getMatchingHostsInformation(arch string) (*HostInformation, error) {
+// format for remote backed url when creating the dedicated host
+// the backed url from param is used as base and the ID is appended as sub path
+func getBackedURL() string {
+	if strings.Contains(qenvsContext.BackedURL(), "file://") {
+		return qenvsContext.BackedURL()
+	}
+	return fmt.Sprintf("%s/%s", qenvsContext.BackedURL(), qenvsContext.ID())
+}
+
+// Get all dedicated hosts matching the tags + arch
+func getMatchingHostsInformation(arch string) ([]HostInformation, error) {
+	return getMatchingHostsInStateInformation(arch, nil)
+}
+
+// Get all dedicated hosts in available state ordered based on the allocation time
+// newer allocations go first
+func getMatchingAvailableHostsInformation(arch string) ([]HostInformation, error) {
+	as := ec2Types.AllocationStateAvailable
+	return getMatchingHostsInStateInformation(arch, &as)
+}
+
+// Get all dedicated hosts by tag and state
+func getMatchingHostsInStateInformation(arch string, state *ec2Types.AllocationState) ([]HostInformation, error) {
 	matchingTags := qenvsContext.GetTags()
 	matchingTags[archTagName] = arch
 	hosts, err := data.GetDedicatedHosts(data.DedicatedHostResquest{
@@ -30,21 +72,31 @@ func getMatchingHostsInformation(arch string) (*HostInformation, error) {
 	if err != nil {
 		return nil, err
 	}
-	if len(hosts) == 0 {
-		return nil, fmt.Errorf("not hosts found")
+	var r []HostInformation
+	for _, dh := range hosts {
+		if state == nil || (state != nil && dh.State == *state) {
+			i := slices.IndexFunc(
+				dh.Tags,
+				func(t ec2Types.Tag) bool {
+					return *t.Key == backedURLTagName
+				})
+			az := *dh.AvailabilityZone
+			region := az[:len(az)-1]
+
+			r = append(r, HostInformation{
+				BackedURL: dh.Tags[i].Value,
+				Region:    &region,
+				Host:      &dh,
+			})
+		}
 	}
-	i := slices.IndexFunc(
-		hosts[0].Tags,
-		func(t ec2Types.Tag) bool {
-			return *t.Key == backedURLTagName
+	// Order by allocation time, first newest
+	if len(r) > 1 {
+		slices.SortFunc(r, func(a, b HostInformation) int {
+			return b.Host.AllocationTime.Compare(*a.Host.AllocationTime)
 		})
-	az := *hosts[0].AvailabilityZone
-	region := az[:len(az)-1]
-	return &HostInformation{
-		BackedURL: hosts[0].Tags[i].Value,
-		Region:    &region,
-		Host:      &hosts[0],
-	}, nil
+	}
+	return r, nil
 }
 
 // checks if the machine can be created on the current location (machine type is available on the region)

@@ -100,7 +100,7 @@ func Create(r *Request) error {
 		}
 		r.az = *az
 	}
-	isAMIOffered, _, err := amiSVC.IsAMIOffered(&r.AMIName, nil, &r.region)
+	isAMIOffered, _, err := data.IsAMIOffered(&r.AMIName, nil, &r.region)
 	if err != nil {
 		return err
 	}
@@ -150,9 +150,9 @@ func Destroy() (err error) {
 
 func (r *Request) createMachine() error {
 	cs := manager.Stack{
-		StackName:   qenvsContext.GetStackInstanceName(stackName),
-		ProjectName: qenvsContext.GetInstanceName(),
-		BackedURL:   qenvsContext.GetBackedURL(),
+		StackName:   qenvsContext.StackNameByProject(stackName),
+		ProjectName: qenvsContext.ProjectName(),
+		BackedURL:   qenvsContext.BackedURL(),
 		ProviderCredentials: aws.GetClouProviderCredentials(
 			map[string]string{
 				aws.CONFIG_AWS_REGION: r.region}),
