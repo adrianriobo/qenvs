@@ -25,17 +25,19 @@ import (
 	"strings"
 
 	"github.com/blang/semver"
-	pbempty "github.com/golang/protobuf/ptypes/empty"
-	_struct "github.com/golang/protobuf/ptypes/struct"
 	"github.com/grpc-ecosystem/grpc-opentracing/go/otgrpc"
 	multierror "github.com/hashicorp/go-multierror"
 	"github.com/opentracing/opentracing-go"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/protobuf/types/known/emptypb"
+	"google.golang.org/protobuf/types/known/structpb"
 
 	"github.com/pulumi/pulumi/sdk/v3/go/common/promise"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/resource"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/archive"
+	"github.com/pulumi/pulumi/sdk/v3/go/common/resource/asset"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/slice"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/tokens"
 	"github.com/pulumi/pulumi/sdk/v3/go/common/util/cmdutil"
@@ -599,16 +601,16 @@ func traverseMap(m resource.PropertyMap, f func(resource.PropertyValue)) {
 // Those inputs may echo back the input assets and the engine writes them out to the state. We need to make sure that
 // we don't write out empty assets to the state, so we restore the asset contents from the original inputs.
 func restoreElidedAssetContents(original resource.PropertyMap, transformed resource.PropertyMap) {
-	isEmptyAsset := func(v *resource.Asset) bool {
+	isEmptyAsset := func(v *asset.Asset) bool {
 		return v.Text == "" && v.Path == "" && v.URI == ""
 	}
 
-	isEmptyArchive := func(v *resource.Archive) bool {
+	isEmptyArchive := func(v *archive.Archive) bool {
 		return v.Path == "" && v.URI == "" && v.Assets == nil
 	}
 
-	originalAssets := map[string]*resource.Asset{}
-	originalArchives := map[string]*resource.Archive{}
+	originalAssets := map[string]*asset.Asset{}
+	originalArchives := map[string]*archive.Archive{}
 
 	traverseMap(original, func(value resource.PropertyValue) {
 		if value.IsAsset() {
@@ -974,7 +976,7 @@ func (p *provider) Create(urn resource.URN, props resource.PropertyMap, timeout 
 	}
 
 	var id resource.ID
-	var liveObject *_struct.Struct
+	var liveObject *structpb.Struct
 	var resourceError error
 	resourceStatus := resource.StatusOK
 	resp, err := client.Create(p.requestContext(), &pulumirpc.CreateRequest{
@@ -1053,7 +1055,7 @@ func (p *provider) Read(urn resource.URN, id resource.ID,
 	}
 
 	// Marshal the resource inputs and state so we can perform the RPC.
-	var minputs *_struct.Struct
+	var minputs *structpb.Struct
 	if inputs != nil {
 		m, err := MarshalProperties(inputs, MarshalOptions{
 			Label:              label,
@@ -1078,8 +1080,8 @@ func (p *provider) Read(urn resource.URN, id resource.ID,
 
 	// Now issue the read request over RPC, blocking until it finished.
 	var readID resource.ID
-	var liveObject *_struct.Struct
-	var liveInputs *_struct.Struct
+	var liveObject *structpb.Struct
+	var liveInputs *structpb.Struct
 	var resourceError error
 	resourceStatus := resource.StatusOK
 	resp, err := client.Read(p.requestContext(), &pulumirpc.ReadRequest{
@@ -1227,7 +1229,7 @@ func (p *provider) Update(urn resource.URN, id resource.ID,
 		return nil, resource.StatusOK, err
 	}
 
-	var liveObject *_struct.Struct
+	var liveObject *structpb.Struct
 	var resourceError error
 	resourceStatus := resource.StatusOK
 	resp, err := client.Update(p.requestContext(), &pulumirpc.UpdateRequest{
@@ -1720,7 +1722,7 @@ func (p *provider) GetPluginInfo() (workspace.PluginInfo, error) {
 
 	// Calling GetPluginInfo happens immediately after loading, and does not require configuration to proceed.
 	// Thus, we access the clientRaw property, rather than calling getClient.
-	resp, err := p.clientRaw.GetPluginInfo(p.requestContext(), &pbempty.Empty{})
+	resp, err := p.clientRaw.GetPluginInfo(p.requestContext(), &emptypb.Empty{})
 	if err != nil {
 		rpcError := rpcerror.Convert(err)
 		logging.V(7).Infof("%s failed: err=%v", label, rpcError.Message())
@@ -1768,13 +1770,12 @@ func (p *provider) Attach(address string) error {
 }
 
 func (p *provider) SignalCancellation() error {
-	_, err := p.clientRaw.Cancel(p.requestContext(), &pbempty.Empty{})
+	_, err := p.clientRaw.Cancel(p.requestContext(), &emptypb.Empty{})
 	if err != nil {
 		rpcError := rpcerror.Convert(err)
 		logging.V(8).Infof("provider received rpc error `%s`: `%s`", rpcError.Code(),
 			rpcError.Message())
-		switch rpcError.Code() {
-		case codes.Unimplemented:
+		if rpcError.Code() == codes.Unimplemented {
 			// For backwards compatibility, do nothing if it's not implemented.
 			return nil
 		}
@@ -1830,6 +1831,7 @@ func createConfigureError(rpcerr *rpcerror.Error) error {
 func resourceStateAndError(err error) (resource.Status, *rpcerror.Error) {
 	rpcError := rpcerror.Convert(err)
 	logging.V(8).Infof("provider received rpc error `%s`: `%s`", rpcError.Code(), rpcError.Message())
+	//nolint:exhaustive // We want to handle only some error codes specially
 	switch rpcError.Code() {
 	case codes.Internal, codes.DataLoss, codes.Unknown:
 		logging.V(8).Infof("rpc error kind `%s` may not be recoverable", rpcError.Code())
@@ -1848,7 +1850,7 @@ func resourceStateAndError(err error) (resource.Status, *rpcerror.Error) {
 // object was created, but app code is continually crashing and the resource never achieves
 // liveness).
 func parseError(err error) (
-	resourceStatus resource.Status, id resource.ID, liveInputs, liveObject *_struct.Struct, resourceErr error,
+	resourceStatus resource.Status, id resource.ID, liveInputs, liveObject *structpb.Struct, resourceErr error,
 ) {
 	var responseErr *rpcerror.Error
 	resourceStatus, responseErr = resourceStateAndError(err)

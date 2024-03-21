@@ -1,5 +1,5 @@
 
-FROM registry.access.redhat.com/ubi9/go-toolset:1.20.10-2.1699551725 as builder
+FROM registry.access.redhat.com/ubi9/go-toolset:1.20.12-3.1711009139@sha256:e6d05044bc8e291d05cf336f13fbbab03a4e35438cbf72d609c55b3420c80d9a as builder
 
 USER root
 WORKDIR /workspace
@@ -41,7 +41,7 @@ ARG PULUMI_AZURE_NATIVE_VERSION=v2.25.0
 # renovate: datasource=github-releases depName=pulumi/pulumi-command
 ARG PULUMI_COMMAND_VERSION=v0.9.2
 # renovate: datasource=github-releases depName=pulumi/pulumi-tls
-ARG PULUMI_TLS_VERSION=v5.0.0
+ARG PULUMI_TLS_VERSION=v5.0.1
 # renovate: datasource=github-releases depName=pulumi/pulumi-random
 ARG PULUMI_RANDOM_VERSION=v4.15.0
 

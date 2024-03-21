@@ -145,6 +145,7 @@ func dialPlugin(portNum int, bin, prefix string, dialOptions []grpc.DialOption) 
 				// We have an error; see if it's a known status and, if so, react appropriately.
 				status, ok := status.FromError(err)
 				if ok {
+					//nolint:exhaustive // we have a default case for other statuses
 					switch status.Code() {
 					case codes.Unavailable:
 						// The server is unavailable.  This is the Linux bug.  Wait a little and retry.
@@ -345,16 +346,17 @@ func execPlugin(ctx *Context, bin, prefix string, kind workspace.PluginKind,
 
 		logging.V(9).Infof("Launching plugin '%v' from '%v' via runtime '%s'", prefix, pluginDir, runtimeInfo.Name())
 
-		runtime, err := ctx.Host.LanguageRuntime(pluginDir, pluginDir, runtimeInfo.Name(), runtimeInfo.Options())
+		info := NewProgramInfo(pluginDir, pluginDir, ".", runtimeInfo.Options())
+		runtime, err := ctx.Host.LanguageRuntime(runtimeInfo.Name(), info)
 		if err != nil {
 			return nil, fmt.Errorf("loading runtime: %w", err)
 		}
 
 		stdout, stderr, kill, err := runtime.RunPlugin(RunPluginInfo{
-			Pwd:     pwd,
-			Program: pluginDir,
-			Args:    pluginArgs,
-			Env:     env,
+			Info:             info,
+			WorkingDirectory: ctx.Pwd,
+			Args:             pluginArgs,
+			Env:              env,
 		})
 		if err != nil {
 			return nil, err
